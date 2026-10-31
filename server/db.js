@@ -101,15 +101,19 @@ export function seedIfEmpty() {
   );
   const adminPass = process.env.ADMIN_PASSWORD || 'changeme123';
   const admin = addUser.run('admin', 'Gospel Banker Admin', hash(adminPass), 'admin', 'App administrator', '').lastInsertRowid;
-  const grace = addUser.run('grace', 'Grace Wanjiru', hash('password123'), 'member', 'Nurse · Health ministries leader', 'Nairobi Central SDA').lastInsertRowid;
-  const daniel = addUser.run('daniel', 'Daniel Otieno', hash('password123'), 'member', 'Youth leader · Software developer', 'Kisumu Milimani SDA').lastInsertRowid;
-
+  const addPost = db.prepare('INSERT INTO posts (author_id, body, kind) VALUES (?, ?, ?)');
   const addContent = db.prepare(
     'INSERT INTO content (section, title, summary, url, source, meta, submitted_by) VALUES (?, ?, ?, ?, ?, ?, ?)'
   );
   for (const c of SEED_CONTENT) {
     addContent.run(c.section, c.title, c.summary || '', c.url || '', c.source || '', JSON.stringify(c.meta || {}), admin);
   }
+  addPost.run(admin, 'Welcome to The Gospel Banker! Share testimonies, prayer requests and encouragement. Please keep every word kind: messages are filtered for abusive language.', 'post');
+
+  // Demo members and conversations for local testing. Production installs set SEED_DEMO=false.
+  if (process.env.SEED_DEMO === 'false') return true;
+  const grace = addUser.run('grace', 'Grace Wanjiru', hash('password123'), 'member', 'Nurse · Health ministries leader', 'Nairobi Central SDA').lastInsertRowid;
+  const daniel = addUser.run('daniel', 'Daniel Otieno', hash('password123'), 'member', 'Youth leader · Software developer', 'Kisumu Milimani SDA').lastInsertRowid;
 
   const addConv = db.prepare('INSERT INTO conversations (name, is_group, created_by) VALUES (?, ?, ?)');
   const addMember = db.prepare('INSERT INTO conversation_members (conversation_id, user_id) VALUES (?, ?)');
@@ -118,10 +122,7 @@ export function seedIfEmpty() {
   for (const u of [admin, grace, daniel]) addMember.run(group, u);
   addMsg.run(group, daniel, 'Happy Sabbath everyone! This week we are in Daniel 2.');
   addMsg.run(group, grace, 'Amen! I will bring the study guide printouts.');
-
-  const addPost = db.prepare('INSERT INTO posts (author_id, body, kind) VALUES (?, ?, ?)');
   addPost.run(grace, 'Our church is hosting a free health expo next Sunday: blood pressure checks, cooking demos and a talk on the 8 laws of health. All are welcome!', 'post');
   addPost.run(daniel, 'Please pray for our youth team travelling for a week of evangelism.', 'prayer');
-  addPost.run(admin, 'Welcome to The Gospel Banker! Share testimonies, prayer requests and encouragement. Please keep every word kind: messages are filtered for abusive language.', 'post');
   return true;
 }

@@ -69,6 +69,8 @@ Run the tests with `npm test`.
 
 **Render (easiest):** in Render choose New → Blueprint and pick this repository. `render.yaml` sets everything up, including a 10 GB disk for the database and videos. You'll be asked for `ADMIN_PASSWORD` and, optionally, `ANTHROPIC_API_KEY`. The disk needs Render's Starter plan (about $7/month plus disk).
 
+**Oracle Cloud (free):** follow [deploy/ORACLE.md](deploy/ORACLE.md). A one-command installer sets up the app, HTTPS and the firewall.
+
 Otherwise: it's a single Node.js server with an SQLite database file, so any host with a persistent disk works: Render, Railway or Fly.io (attach a volume), or a small VPS. A `Dockerfile` is included and stores the database in `/data`. Set `JWT_SECRET` and `ADMIN_PASSWORD`, and set `ANTHROPIC_API_KEY` if you want the AI filter. HTTPS is required for "Install app" and notifications, and these hosts provide it.
 
 ## How it's built
