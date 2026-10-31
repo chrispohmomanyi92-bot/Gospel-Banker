@@ -1,0 +1,22 @@
+{
+  "name": "gospel-banker",
+  "version": "0.1.0",
+  "description": "The Gospel Banker: a community app for the Seventh-day Adventist family. Chat, feed, and curated Adventist content.",
+  "type": "module",
+  "main": "server/index.js",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server/index.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch server/index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.5.0",
+    "socket.io": "^4.8.1"
+  }
+}

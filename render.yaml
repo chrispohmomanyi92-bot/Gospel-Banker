@@ -1,0 +1,27 @@
+# One-click deploy on Render: New > Blueprint > pick this repo.
+# A persistent disk (needed for the database and uploaded videos) requires a paid instance.
+services:
+  - type: web
+    name: gospel-banker
+    runtime: node
+    plan: starter
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DB_PATH
+        value: /var/data/gospel-banker.db
+      - key: MEDIA_DIR
+        value: /var/data/media
+    disk:
+      name: data
+      mountPath: /var/data
+      sizeGB: 10

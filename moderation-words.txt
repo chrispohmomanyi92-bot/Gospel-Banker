@@ -1,0 +1,2 @@
+# Extra words to filter, one per line. Add local-language insults here
+# (for example Swahili, Kiswahili slang, Ekegusii). Lines starting with # are ignored.

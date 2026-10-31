@@ -1,0 +1,12 @@
+{
+  "name": "The Gospel Banker",
+  "short_name": "Gospel Banker",
+  "description": "A community app for the Seventh-day Adventist family.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#14284b",
+  "theme_color": "#14284b",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

@@ -1,0 +1,529 @@
+// The Gospel Banker: single-page client (no build step).
+import { renderVideos, pendingVideosHtml } from './videos.js';
+const $ = (sel, el = document) => el.querySelector(sel);
+export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+export const initials = (name) => (name || '?').split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
+const when = (iso) => {
+  const d = new Date(iso.replace(' ', 'T') + 'Z');
+  const sameDay = d.toDateString() === new Date().toDateString();
+  return sameDay ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+};
+export const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+
+const VERSES = [
+  ['Fear thou not; for I am with thee: be not dismayed; for I am thy God.', 'Isaiah 41:10'],
+  ['Remember the sabbath day, to keep it holy.', 'Exodus 20:8'],
+  ['Beloved, I wish above all things that thou mayest prosper and be in health.', '3 John 1:2'],
+  ['Let the words of my mouth, and the meditation of my heart, be acceptable in thy sight.', 'Psalm 19:14'],
+  ['Let no corrupt communication proceed out of your mouth, but that which is good to the use of edifying.', 'Ephesians 4:29'],
+  ['Here is the patience of the saints: here are they that keep the commandments of God, and the faith of Jesus.', 'Revelation 14:12'],
+  ['Come unto me, all ye that labour and are heavy laden, and I will give you rest.', 'Matthew 11:28'],
+];
+
+export const state = { token: localStorage.getItem('gb_token'), user: null, sections: [], online: new Set(), convs: [], activeConv: null, aiModeration: false };
+let socket = null;
+
+export function toast(msg, error = false) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.className = 'show' + (error ? ' error' : '');
+  clearTimeout(toast.t);
+  toast.t = setTimeout(() => (t.className = ''), 3500);
+}
+
+export async function api(path, opts = {}) {
+  const res = await fetch('/api' + path, {
+    ...opts,
+    headers: { 'content-type': 'application/json', ...(state.token ? { authorization: 'Bearer ' + state.token } : {}) },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401 && state.token) { logout(); throw new Error('Please sign in again.'); }
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+
+// ---------------- auth ----------------
+function renderAuth(mode = 'login') {
+  const reg = mode === 'register';
+  $('#app').innerHTML = `
+  <div class="auth"><form class="card" id="authForm">
+    <div class="brand"><img src="/icon.svg" alt=""><h2>The Gospel Banker</h2>
+      <div class="muted small">Chat, share and grow together in faith</div></div>
+    ${reg ? `<label class="field"><span>Full name</span><input type="text" name="display_name" required></label>` : ''}
+    <label class="field"><span>Username</span><input type="text" name="username" autocomplete="username" required></label>
+    <label class="field"><span>Password</span><input type="password" name="password" autocomplete="${reg ? 'new-password' : 'current-password'}" required minlength="${reg ? 8 : 1}"></label>
+    ${reg ? `<label class="field"><span>Home church (optional)</span><input type="text" name="church"></label>
+             <label class="field"><span>Headline (optional), e.g. "Teacher · Pathfinder leader"</span><input type="text" name="headline"></label>` : ''}
+    <button class="btn gold" style="width:100%">${reg ? 'Create account' : 'Sign in'}</button>
+    <div class="switch">${reg ? 'Already have an account?' : 'New here?'} <button type="button" id="switchMode">${reg ? 'Sign in' : 'Create an account'}</button></div>
+  </form></div>`;
+  $('#switchMode').onclick = () => renderAuth(reg ? 'login' : 'register');
+  $('#authForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(e.target));
+    try {
+      const { token, user } = await api(reg ? '/auth/register' : '/auth/login', { method: 'POST', body });
+      state.token = token; state.user = user;
+      localStorage.setItem('gb_token', token);
+      boot();
+    } catch (err) { toast(err.message, true); }
+  };
+}
+
+function logout() {
+  localStorage.removeItem('gb_token');
+  state.token = null; state.user = null;
+  socket?.disconnect(); socket = null;
+  location.hash = '';
+  renderAuth();
+}
+
+// ---------------- shell ----------------
+const TABS = [
+  ['feed', '🏠', 'Feed'], ['videos', '🎬', 'Videos'], ['chats', '💬', 'Chats'], ['library', '📚', 'Library'], ['profile', '👤', 'Profile'],
+];
+
+function renderShell() {
+  const staff = ['admin', 'moderator'].includes(state.user.role);
+  const tabs = staff ? [...TABS, ['admin', '🛡️', 'Moderate']] : TABS;
+  $('#app').innerHTML = `
+  <div class="shell">
+    <nav class="tabs">${tabs.map(([k, i, l]) => `<a href="#/${k}" data-tab="${k}"><span class="ico">${i}</span>${l}${k === 'chats' ? '<span class="badge" id="unreadBadge" hidden></span>' : ''}</a>`).join('')}</nav>
+    <div class="content-col">
+      <header class="topbar"><img class="logo" src="/icon.svg" alt=""><h1>The Gospel <span>Banker</span></h1>
+        <button class="iconbtn" id="themeBtn" title="Switch light/dark">🌓</button></header>
+      <main id="view"></main>
+    </div>
+  </div>`;
+  $('#themeBtn').onclick = () => {
+    const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    const next = cur === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    localStorage.setItem('gb_theme', next);
+  };
+}
+
+function updateUnread() {
+  const n = state.convs.reduce((a, c) => a + (c.unread || 0), 0);
+  const b = $('#unreadBadge');
+  if (b) { b.hidden = !n; b.textContent = n; }
+}
+
+async function route() {
+  if (!state.user) return;
+  const [, rawTab = 'feed', ...rest] = location.hash.split('/');
+  const tab = rawTab.split('?')[0];
+  document.querySelectorAll('.tabs a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tab));
+  const view = $('#view');
+  view.scrollTop = 0;
+  try {
+    if (tab === 'feed') await renderFeed(view, rest[0]);
+    else if (tab === 'videos') await renderVideos(view, rest.map((r) => r.split('?')[0]));
+    else if (tab === 'chats') await renderChats(view, rest[0]);
+    else if (tab === 'library') await (rest[0] ? renderSection(view, rest[0]) : renderLibrary(view));
+    else if (tab === 'profile') await renderProfile(view, rest[0]);
+    else if (tab === 'admin') await renderAdmin(view);
+    else location.hash = '#/feed';
+  } catch (err) { view.innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
+}
+
+// ---------------- feed ----------------
+const KIND_LABEL = { post: 'Post', prayer: 'Prayer request', testimony: 'Testimony' };
+
+async function renderFeed(view, kind) {
+  const [verse, ref] = VERSES[new Date().getDate() % VERSES.length];
+  view.innerHTML = `<div class="page">
+    <div class="hero"><div class="small" style="color:var(--gold);font-weight:600">VERSE OF THE DAY</div><div class="verse">"${esc(verse)}"</div><div class="ref">${esc(ref)}</div></div>
+    <form class="card" id="composer">
+      <textarea name="body" placeholder="Share encouragement, a testimony or a prayer request…" required></textarea>
+      <div class="row" style="margin-top:8px">
+        <select name="kind" style="width:auto"><option value="post">Post</option><option value="prayer">Prayer request</option><option value="testimony">Testimony</option></select>
+        <span class="spacer"></span><button class="btn">Share</button>
+      </div>
+    </form>
+    <div class="chips">${[['', 'All'], ['prayer', '🙏 Prayer'], ['testimony', '🙌 Testimonies'], ['post', 'Posts']].map(([k, l]) => `<a class="chip ${(kind || '') === k ? 'active' : ''}" href="#/feed${k ? '/' + k : ''}">${l}</a>`).join('')}</div>
+    <div id="posts"></div></div>`;
+  $('#composer').onsubmit = async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(e.target));
+    try {
+      const r = await api('/posts', { method: 'POST', body });
+      if (r.notice) toast(r.notice);
+      e.target.reset(); loadPosts(kind);
+    } catch (err) { toast(err.message, true); }
+  };
+  await loadPosts(kind);
+}
+
+async function loadPosts(kind) {
+  const el = $('#posts');
+  if (!el) return;
+  const posts = await api('/posts' + (kind ? '?kind=' + kind : ''));
+  el.innerHTML = posts.length ? posts.map(postHtml).join('') : '<div class="empty">Nothing here yet. Be the first to share!</div>';
+  el.onclick = async (e) => {
+    const btn = e.target.closest('button[data-act]');
+    if (!btn) return;
+    const card = btn.closest('[data-post]'); const id = card.dataset.post;
+    try {
+      if (btn.dataset.act === 'like') {
+        const r = await api(`/posts/${id}/like`, { method: 'POST' });
+        btn.classList.toggle('on', r.liked); btn.innerHTML = `${r.liked ? '❤️' : '🤍'} ${r.likes || ''} ${card.dataset.kind === 'prayer' ? 'Praying' : 'Amen'}`;
+      } else if (btn.dataset.act === 'comments') {
+        const box = $('.comments', card);
+        if (!box.hidden) { box.hidden = true; return; }
+        box.hidden = false; await loadComments(id, box);
+      } else if (btn.dataset.act === 'delete' && confirm('Delete this post?')) {
+        await api('/posts/' + id, { method: 'DELETE' }); card.remove();
+      } else if (btn.dataset.act === 'message') {
+        openDirect(Number(card.dataset.author));
+      }
+    } catch (err) { toast(err.message, true); }
+  };
+}
+
+function postHtml(p) {
+  const mine = p.author_id === state.user.id;
+  const staff = ['admin', 'moderator'].includes(state.user.role);
+  return `<article class="card" data-post="${p.id}" data-kind="${p.kind}" data-author="${p.author_id}">
+    <div class="post-head"><a class="avatar ${state.online.has(p.author_id) ? 'online' : ''}" href="#/profile/${p.author_id}" style="text-decoration:none">${esc(initials(p.author_name))}</a>
+      <div style="flex:1;min-width:0"><a class="name" href="#/profile/${p.author_id}" style="color:inherit;text-decoration:none">${esc(p.author_name)}</a>
+        <div class="muted small">${esc(p.author_headline || '')}${p.author_headline ? ' · ' : ''}${when(p.created_at)}</div></div>
+      ${p.kind !== 'post' ? `<span class="tag">${KIND_LABEL[p.kind]}</span>` : ''}
+      ${mine || staff ? '<button class="iconbtn" data-act="delete" title="Delete">🗑️</button>' : ''}</div>
+    <div class="post-body">${linkify(p.body)}</div>
+    <div class="post-actions">
+      <button data-act="like" class="${p.liked ? 'on' : ''}">${p.liked ? '❤️' : '🤍'} ${p.likes || ''} ${p.kind === 'prayer' ? 'Praying' : 'Amen'}</button>
+      <button data-act="comments">💬 ${p.comment_count || ''} Comment</button>
+      ${mine ? '' : '<button data-act="message">✉️ Message</button>'}
+    </div>
+    <div class="comments" hidden></div></article>`;
+}
+
+async function loadComments(postId, box) {
+  const comments = await api(`/posts/${postId}/comments`);
+  box.innerHTML = comments.map((c) => `<div class="comment"><b>${esc(c.author_name)}</b> ${linkify(c.body)}</div>`).join('') +
+    `<form class="row" style="margin-top:6px"><input type="text" name="body" placeholder="Write a kind comment…" required><button class="btn small">Send</button></form>`;
+  $('form', box).onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const r = await api(`/posts/${postId}/comments`, { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
+      if (r.notice) toast(r.notice);
+      loadComments(postId, box);
+    } catch (err) { toast(err.message, true); }
+  };
+}
+
+// ---------------- chats ----------------
+async function loadConvs() {
+  state.convs = await api('/conversations');
+  updateUnread();
+  return state.convs;
+}
+
+async function renderChats(view, convId) {
+  view.innerHTML = `<div class="chat-layout ${convId ? 'open' : ''}" style="height:100%">
+    <div class="chat-list"><div class="row" style="padding:12px 16px;border-bottom:1px solid var(--line)"><b style="flex:1">Chats</b>
+      <button class="btn small gold" id="newChat">+ New chat</button></div><div id="convList"></div></div>
+    <section class="chat-pane" id="chatPane">${convId ? '' : '<div class="empty" style="margin:auto">Select a chat or start a new one.</div>'}</section></div>`;
+  $('#newChat').onclick = newChatDialog;
+  await loadConvs();
+  drawConvList(convId);
+  if (convId) await openConversation(Number(convId));
+  else state.activeConv = null;
+}
+
+function convAvatar(c) {
+  if (c.is_group) return `<div class="avatar">👥</div>`;
+  const other = c.members.find((m) => m.id !== state.user.id);
+  return `<div class="avatar ${other && state.online.has(other.id) ? 'online' : ''}">${esc(initials(c.title))}</div>`;
+}
+
+function drawConvList(activeId) {
+  const el = $('#convList');
+  if (!el) return;
+  el.innerHTML = state.convs.length ? state.convs.map((c) => `
+    <a class="chat-item ${Number(activeId) === c.id ? 'active' : ''}" href="#/chats/${c.id}">${convAvatar(c)}
+      <div class="meta"><div class="row"><b style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.title)}</b><span class="muted small">${c.last_at ? when(c.last_at) : ''}</span></div>
+      <div class="row"><div class="last" style="flex:1">${esc(c.last_body || 'No messages yet')}</div>${c.unread && Number(activeId) !== c.id ? `<span class="badge">${c.unread}</span>` : ''}</div></div></a>`).join('')
+    : '<div class="empty">No chats yet. Tap "New chat" to message someone.</div>';
+}
+
+function bubbleHtml(m, isGroup) {
+  const me = m.sender_id === state.user.id;
+  return `<div class="bubble ${me ? 'me' : ''} ${m.flagged ? 'flagged' : ''}" data-id="${m.id}">${isGroup && !me ? `<div class="who">${esc(m.sender_name)}</div>` : ''}${linkify(m.body)}<div class="time">${when(m.created_at)}</div></div>`;
+}
+
+async function openConversation(id) {
+  const c = state.convs.find((x) => x.id === id);
+  const pane = $('#chatPane');
+  if (!c) { pane.innerHTML = '<div class="empty">Chat not found.</div>'; return; }
+  state.activeConv = c;
+  const sub = c.is_group ? c.members.map((m) => m.display_name.split(' ')[0]).join(', ')
+    : (state.online.has(c.members.find((m) => m.id !== state.user.id)?.id) ? 'online' : c.members.find((m) => m.id !== state.user.id)?.headline || '');
+  pane.innerHTML = `<div class="chat-header"><a class="iconbtn" href="#/chats" style="text-decoration:none">←</a>${convAvatar(c)}
+      <div style="min-width:0"><b>${esc(c.title)}</b><div class="muted small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(sub)}</div></div></div>
+    <div class="messages" id="msgs"></div><div class="typing" id="typing"></div>
+    <form class="composer" id="sendForm"><textarea name="body" rows="1" placeholder="Message" required></textarea><button class="btn" title="Send">➤</button></form>`;
+  const msgs = await api(`/conversations/${id}/messages`);
+  const box = $('#msgs');
+  box.innerHTML = msgs.map((m) => bubbleHtml(m, c.is_group)).join('');
+  box.scrollTop = box.scrollHeight;
+  c.unread = 0; updateUnread(); drawConvList(id);
+  socket?.emit('conversation:join', id);
+
+  const form = $('#sendForm'); const ta = $('textarea', form);
+  let lastTyping = 0;
+  ta.oninput = () => {
+    ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px';
+    if (Date.now() - lastTyping > 2000) { socket?.emit('typing', { conversationId: id }); lastTyping = Date.now(); }
+  };
+  ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey && !matchMedia('(pointer: coarse)').matches) { e.preventDefault(); form.requestSubmit(); } };
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const body = ta.value.trim();
+    if (!body) return;
+    ta.value = ''; ta.style.height = 'auto';
+    socket.emit('message:send', { conversationId: id, body }, (r) => {
+      if (r.error) { toast(r.error, true); ta.value = body; }
+      else if (r.notice) toast(r.notice);
+    });
+  };
+}
+
+async function newChatDialog() {
+  const dlg = document.createElement('dialog');
+  dlg.innerHTML = `<form method="dialog" id="ncForm"><h3>New chat</h3>
+    <input type="search" id="userSearch" placeholder="Search by name, username or church">
+    <div id="userResults" style="max-height:300px;overflow:auto;margin:10px 0"></div>
+    <label class="field"><span>Group name (only for groups of 3 or more)</span><input type="text" name="name" placeholder="e.g. Choir, Pathfinders, Family"></label>
+    <div class="row"><span class="spacer"></span><button class="btn ghost" value="cancel" formnovalidate>Cancel</button><button class="btn" value="ok" id="ncGo">Start chat</button></div></form>`;
+  document.body.append(dlg); dlg.showModal();
+  const picked = new Set();
+  const search = async () => {
+    const users = await api('/users?q=' + encodeURIComponent($('#userSearch', dlg).value));
+    $('#userResults', dlg).innerHTML = users.map((u) => `<label class="pick"><input type="checkbox" value="${u.id}" ${picked.has(u.id) ? 'checked' : ''}>
+      <div class="avatar sm">${esc(initials(u.display_name))}</div><div><b>${esc(u.display_name)}</b> <span class="muted small">@${esc(u.username)}</span><div class="muted small">${esc([u.headline, u.church].filter(Boolean).join(' · '))}</div></div></label>`).join('') || '<div class="muted">No one found.</div>';
+  };
+  $('#userResults', dlg).onchange = (e) => { const id = Number(e.target.value); e.target.checked ? picked.add(id) : picked.delete(id); };
+  let t; $('#userSearch', dlg).oninput = () => { clearTimeout(t); t = setTimeout(search, 250); };
+  search();
+  dlg.onclose = async () => {
+    const name = new FormData($('#ncForm', dlg)).get('name');
+    dlg.remove();
+    if (dlg.returnValue !== 'ok' || !picked.size) return;
+    try {
+      const { id } = await api('/conversations', { method: 'POST', body: { user_ids: [...picked], name: picked.size > 1 ? name : undefined } });
+      location.hash = '#/chats/' + id;
+    } catch (err) { toast(err.message, true); }
+  };
+}
+
+async function openDirect(userId) {
+  try {
+    const { id } = await api('/conversations', { method: 'POST', body: { user_ids: [userId] } });
+    location.hash = '#/chats/' + id;
+  } catch (err) { toast(err.message, true); }
+}
+
+// ---------------- library ----------------
+async function renderLibrary(view) {
+  state.sections = await api('/sections');
+  view.innerHTML = `<div class="page">
+    <h2>Library</h2><p class="muted">Adventist music, preaching, health, study and service, all in one place.</p>
+    <form id="libSearch" class="row" style="margin-bottom:16px"><input type="search" name="q" placeholder="Search everything…"><button class="btn">Search</button></form>
+    <div id="libResults"></div>
+    <div class="grid">${state.sections.map((s) => `<a class="tile" href="#/library/${s.key}"><span class="ico">${s.icon}</span><span class="label">${esc(s.label)}</span><span class="muted small">${s.count} item${s.count === 1 ? '' : 's'}</span></a>`).join('')}</div></div>`;
+  $('#libSearch').onsubmit = async (e) => {
+    e.preventDefault();
+    const term = new FormData(e.target).get('q').trim();
+    const el = $('#libResults');
+    if (!term) { el.innerHTML = ''; return; }
+    const items = await api('/content?q=' + encodeURIComponent(term));
+    el.innerHTML = items.length ? items.map(itemHtml).join('') : '<div class="empty">No matches.</div>';
+  };
+}
+
+function youtubeId(url) {
+  const m = String(url).match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/|live\/)|youtu\.be\/)([\w-]{11})/);
+  return m && m[1];
+}
+
+const VIDEO_LINK = { 'music-videos': 'music', music: 'music', sermons: 'sermons', health: 'health', podcasts: 'podcasts', mission: 'mission', testimonies: 'testimonies', 'bible-study': 'bible-study', events: 'events' };
+
+function itemHtml(it) {
+  const sec = state.sections.find((s) => s.key === it.section);
+  const yt = youtubeId(it.url);
+  const m = it.meta || {};
+  return `<article class="card">
+    <div class="row"><span class="tag">${esc(sec?.label || it.section)}</span><span class="spacer"></span><span class="muted small">${esc(it.source)}</span></div>
+    <div class="item-title" style="margin-top:6px">${esc(it.title)}</div>
+    ${it.summary ? `<div class="muted">${esc(it.summary)}</div>` : ''}
+    ${yt ? `<div class="embed"><iframe src="https://www.youtube-nocookie.com/embed/${yt}" loading="lazy" allowfullscreen title="${esc(it.title)}"></iframe></div>` : ''}
+    ${m.location || m.type || m.deadline || m.price ? `<div class="kv">${m.location ? `<span>📍 ${esc(m.location)}</span>` : ''}${m.type ? `<span>🕒 ${esc(m.type)}</span>` : ''}${m.deadline ? `<span>📅 ${it.section === 'events' ? 'Date' : 'Apply by'} ${esc(m.deadline)}</span>` : ''}${m.price ? `<span>💲 ${esc(m.price)}</span>` : ''}</div>` : ''}
+    ${it.url && !yt ? `<div style="margin-top:10px"><a class="btn small ghost" style="text-decoration:none" href="${esc(it.url)}" target="_blank" rel="noopener">${it.section === 'jobs' ? 'Apply / details' : 'Open'} ↗</a></div>` : ''}
+  </article>`;
+}
+
+async function renderSection(view, key) {
+  if (!state.sections.length) state.sections = await api('/sections');
+  const sec = state.sections.find((s) => s.key === key);
+  if (!sec) { location.hash = '#/library'; return; }
+  const items = await api('/content?section=' + key);
+  const staff = ['admin', 'moderator'].includes(state.user.role);
+  const extra = key === 'egw' ? `<form class="card" id="egwSearch"><b>Search Ellen G. White's writings</b>
+      <div class="row" style="margin-top:8px"><input type="search" name="q" placeholder="e.g. Steps to Christ, health reform"><button class="btn">Search</button></div>
+      <div class="muted small" style="margin-top:6px">Opens the official EGW Writings site.</div></form>`
+    : VIDEO_LINK[key] ? `<a class="card row" style="text-decoration:none;color:inherit" href="#/videos/c/${VIDEO_LINK[key]}"><span style="font-size:1.6rem">▶️</span><div style="flex:1"><b>Watch ${esc(sec.label)} videos</b><div class="muted small">Uploaded by the community, right here in the app</div></div><span>›</span></a>` + (key === 'testimonies' ? `<div class="card">Have a written testimony? <a href="#/feed/testimony">Share it on the Feed</a>.</div>` : '')
+    : key === 'testimonies' ? `<div class="card">Have a testimony? <a href="#/feed/testimony">Share it on the Feed</a> and choose "Testimony".</div>` : '';
+  view.innerHTML = `<div class="page">
+    <a href="#/library" class="muted small" style="text-decoration:none">← Library</a>
+    <div class="row" style="margin:6px 0 4px"><h2 style="flex:1;margin:0">${sec.icon} ${esc(sec.label)}</h2><button class="btn small gold" id="submitBtn">${staff ? '+ Add' : '+ Suggest'}</button></div>
+    <p class="muted">${esc(sec.blurb)}</p>${extra}
+    ${items.length ? items.map(itemHtml).join('') : '<div class="empty">Nothing here yet.</div>'}</div>`;
+  $('#submitBtn').onclick = () => submitDialog(sec, staff);
+  const egw = $('#egwSearch');
+  if (egw) egw.onsubmit = (e) => {
+    e.preventDefault();
+    const term = new FormData(egw).get('q').trim();
+    window.open('https://egwwritings.org/search?query=' + encodeURIComponent(term), '_blank', 'noopener');
+  };
+}
+
+function submitDialog(sec, staff) {
+  const listing = sec.kind === 'job';
+  const dlg = document.createElement('dialog');
+  dlg.innerHTML = `<form method="dialog"><h3>${staff ? 'Add to' : 'Suggest for'} ${esc(sec.label)}</h3>
+    ${staff ? '' : '<p class="muted small">A moderator reviews suggestions before they appear, to keep content Adventist and family-friendly.</p>'}
+    <label class="field"><span>Title</span><input type="text" name="title" required></label>
+    <label class="field"><span>Link (YouTube links play inside the app)</span><input type="url" name="url" placeholder="https://"></label>
+    <label class="field"><span>${listing ? 'Institution / organiser' : 'Ministry, artist or author'}</span><input type="text" name="source"></label>
+    <label class="field"><span>Short description</span><textarea name="summary"></textarea></label>
+    ${listing ? `<div class="row"><label class="field" style="flex:1"><span>Location</span><input type="text" name="location"></label>
+      <label class="field" style="flex:1"><span>${sec.key === 'events' ? 'Date' : 'Apply by'}</span><input type="date" name="deadline"></label></div>
+      <label class="field"><span>Type</span><input type="text" name="type" placeholder="${sec.key === 'events' ? 'Camp meeting, crusade…' : 'Full-time, contract, volunteer…'}"></label>` : ''}
+    ${sec.kind === 'store' ? '<label class="field"><span>Price range (optional)</span><input type="text" name="price"></label>' : ''}
+    <div class="row"><span class="spacer"></span><button class="btn ghost" value="cancel" formnovalidate>Cancel</button><button class="btn" value="ok">${staff ? 'Publish' : 'Submit'}</button></div></form>`;
+  document.body.append(dlg); dlg.showModal();
+  dlg.onclose = async () => {
+    const f = Object.fromEntries(new FormData($('form', dlg)));
+    dlg.remove();
+    if (dlg.returnValue !== 'ok') return;
+    const { title, url, source, summary, location: loc, deadline, type, price } = f;
+    try {
+      const r = await api('/content', { method: 'POST', body: { section: sec.key, title, url, source, summary, meta: { location: loc, deadline, type, price } } });
+      toast(r.message); route();
+    } catch (err) { toast(err.message, true); }
+  };
+}
+
+// ---------------- profile ----------------
+async function renderProfile(view, userId) {
+  if (userId && Number(userId) !== state.user.id) {
+    const u = await api('/users/' + userId);
+    view.innerHTML = `<div class="page"><div class="card" style="text-align:center">
+      <div class="avatar ${state.online.has(u.id) ? 'online' : ''}" style="width:80px;height:80px;font-size:1.6rem;margin:0 auto 10px">${esc(initials(u.display_name))}</div>
+      <h2>${esc(u.display_name)}</h2><div class="muted">@${esc(u.username)}${u.role !== 'member' ? ` · <span class="tag">${u.role}</span>` : ''}</div>
+      ${u.headline ? `<p><b>${esc(u.headline)}</b></p>` : ''}${u.church ? `<p class="muted">⛪ ${esc(u.church)}</p>` : ''}
+      ${u.bio ? `<p>${esc(u.bio)}</p>` : ''}<p class="muted small">${u.posts} posts</p>
+      <div class="row" style="justify-content:center"><button class="btn gold" id="msgBtn">✉️ Message</button><a class="btn ghost" href="#/videos/channel/${u.id}" style="text-decoration:none">🎬 Channel</a></div></div></div>`;
+    $('#msgBtn').onclick = () => openDirect(u.id);
+    return;
+  }
+  const u = state.user;
+  view.innerHTML = `<div class="page"><form class="card" id="profileForm"><h2>Your profile</h2>
+    <p class="muted small">@${esc(u.username)}${u.role !== 'member' ? ` · ${u.role}` : ''}</p>
+    <label class="field"><span>Name</span><input type="text" name="display_name" value="${esc(u.display_name)}" required></label>
+    <label class="field"><span>Headline (profession or ministry)</span><input type="text" name="headline" value="${esc(u.headline)}"></label>
+    <label class="field"><span>Home church</span><input type="text" name="church" value="${esc(u.church)}"></label>
+    <label class="field"><span>About you</span><textarea name="bio">${esc(u.bio)}</textarea></label>
+    <div class="row"><button class="btn">Save</button><a class="btn ghost" href="#/videos/channel/${u.id}" style="text-decoration:none">🎬 My channel</a><span class="spacer"></span><button type="button" class="btn ghost" id="logoutBtn">Sign out</button></div></form>
+    <div class="card small muted">🛡️ To keep this a safe place, messages, posts and comments are checked for abusive language${state.aiModeration ? ' by an AI filter' : ''}. Mild words are hidden; threats and harassment are blocked, and repeat offenders are muted.</div></div>`;
+  $('#logoutBtn').onclick = logout;
+  $('#profileForm').onsubmit = async (e) => {
+    e.preventDefault();
+    try { const r = await api('/me', { method: 'PATCH', body: Object.fromEntries(new FormData(e.target)) }); state.user = r.user; toast('Profile saved'); }
+    catch (err) { toast(err.message, true); }
+  };
+}
+
+// ---------------- moderation ----------------
+async function renderAdmin(view) {
+  const [pending, log] = await Promise.all([api('/admin/pending'), api('/admin/moderation-log')]);
+  if (!state.sections.length) state.sections = await api('/sections');
+  const videosBlock = await pendingVideosHtml();
+  view.innerHTML = `<div class="page"><h2>Moderation</h2>${videosBlock}
+    <h3 style="margin-top:24px">Library suggestions waiting for review (${pending.length})</h3>
+    ${pending.length ? pending.map((it) => `<div data-id="${it.id}">${itemHtml(it)}<div class="row" style="margin:-6px 0 14px"><span class="muted small" style="flex:1">Suggested by ${esc(it.submitted_by_name || 'unknown')}</span>
+      <button class="btn small danger" data-s="rejected">Reject</button><button class="btn small" data-s="approved">Approve</button></div></div>`).join('') : '<div class="empty">All caught up.</div>'}
+    <h3 style="margin-top:24px">Filtered language log</h3>
+    ${log.length ? `<div class="card" style="padding:0;overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.88rem">
+      <tr style="text-align:left"><th style="padding:8px">When</th><th>User</th><th>Where</th><th>Action</th><th>Text</th></tr>
+      ${log.map((l) => `<tr style="border-top:1px solid var(--line)"><td style="padding:8px;white-space:nowrap">${when(l.created_at)}</td><td>${esc(l.display_name)} <span class="muted">(${l.strikes} strikes)</span></td><td>${l.context}</td><td>${l.verdict}</td><td>${esc(l.original)}</td></tr>`).join('')}
+    </table></div>` : '<div class="empty">No filtered messages.</div>'}</div>`;
+  view.onclick = async (e) => {
+    const vb = e.target.closest('button[data-vs]');
+    if (vb) {
+      const card = vb.closest('[data-vid]');
+      await api('/admin/videos/' + card.dataset.vid, { method: 'POST', body: { status: vb.dataset.vs } });
+      card.remove(); toast(vb.dataset.vs === 'approved' ? 'Video published' : 'Video rejected');
+      return;
+    }
+    const b = e.target.closest('button[data-s]');
+    if (!b) return;
+    const wrap = b.closest('[data-id]');
+    await api('/admin/content/' + wrap.dataset.id, { method: 'POST', body: { status: b.dataset.s } });
+    wrap.remove(); toast(b.dataset.s === 'approved' ? 'Published' : 'Rejected');
+  };
+}
+
+// ---------------- realtime ----------------
+function connectSocket() {
+  socket = io({ auth: { token: state.token } });
+  socket.on('presence', ({ online }) => { state.online = new Set(online); });
+  socket.on('message:new', (m) => {
+    const c = state.convs.find((x) => x.id === m.conversation_id);
+    if (c) { c.last_body = m.body; c.last_at = m.created_at; }
+    if (state.activeConv?.id === m.conversation_id && $('#msgs')) {
+      const box = $('#msgs');
+      const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 120;
+      box.insertAdjacentHTML('beforeend', bubbleHtml(m, state.activeConv.is_group));
+      if (nearBottom || m.sender_id === state.user.id) box.scrollTop = box.scrollHeight;
+      socket.emit('message:read', { conversationId: m.conversation_id, messageId: m.id });
+      $('#typing').textContent = '';
+    } else if (c && m.sender_id !== state.user.id) {
+      c.unread = (c.unread || 0) + 1;
+      if (document.hidden && Notification?.permission === 'granted') new Notification(m.sender_name, { body: m.body, icon: '/icon.svg' });
+    }
+    if (!c) loadConvs().then(() => drawConvList(state.activeConv?.id));
+    state.convs.sort((a, b) => (b.last_at || '').localeCompare(a.last_at || ''));
+    updateUnread(); drawConvList(state.activeConv?.id);
+  });
+  socket.on('conversation:new', () => loadConvs().then(() => drawConvList(state.activeConv?.id)));
+  socket.on('typing', ({ conversationId, name }) => {
+    if (state.activeConv?.id !== conversationId || !$('#typing')) return;
+    $('#typing').textContent = `${name} is typing…`;
+    clearTimeout(connectSocket.t);
+    connectSocket.t = setTimeout(() => { if ($('#typing')) $('#typing').textContent = ''; }, 3000);
+  });
+}
+
+// ---------------- boot ----------------
+async function boot() {
+  const theme = localStorage.getItem('gb_theme');
+  if (theme) document.documentElement.dataset.theme = theme;
+  if (!state.token) return renderAuth();
+  try {
+    const me = await api('/me');
+    state.user = me.user; state.aiModeration = me.aiModeration;
+  } catch { return renderAuth(); }
+  renderShell();
+  connectSocket();
+  loadConvs().catch(() => {});
+  if ('Notification' in window && Notification.permission === 'default') setTimeout(() => Notification.requestPermission().catch(() => {}), 4000);
+  window.onhashchange = route;
+  route();
+}
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+boot();
