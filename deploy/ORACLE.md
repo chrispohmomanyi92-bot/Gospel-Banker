@@ -74,9 +74,14 @@ After 3–5 minutes it prints **"Done! The Gospel Banker is running."** with you
 
 ## 8. Later: everyday tasks
 
+The server updates itself: every 5 minutes it checks GitHub, and when a new version has been merged it installs it and restarts (members stay signed in, and nothing is lost). Servers set up before automatic updates existed need the "Turn on automatic updates" command below once.
+
 | Task | Command (run on the server) |
 |---|---|
-| Update to the latest version | `sudo bash /opt/gospel-banker/deploy/update.sh` |
+| Update to the latest version now | `sudo bash /opt/gospel-banker/deploy/update.sh` |
+| Turn on automatic updates (on by default for new installs) | `sudo bash /opt/gospel-banker/deploy/enable-auto-update.sh` |
+| Turn off automatic updates | `sudo systemctl disable --now gospel-banker-update.timer` |
+| See when it last updated | `sudo journalctl -u gospel-banker-update -n 20` |
 | Back up the database and videos | `sudo bash /opt/gospel-banker/deploy/backup.sh` |
 | See the app's logs | `sudo journalctl -u gospel-banker -f` |
 | Restart the app | `sudo systemctl restart gospel-banker` |

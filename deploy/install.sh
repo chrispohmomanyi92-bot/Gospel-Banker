@@ -130,6 +130,7 @@ say "Starting services"
 systemctl daemon-reload
 systemctl enable --now gospel-banker
 systemctl restart gospel-banker caddy
+bash "$APP_DIR/deploy/enable-auto-update.sh"
 
 for _ in $(seq 1 20); do curl -fsS http://localhost:3000/api/health >/dev/null 2>&1 && break; sleep 1; done
 if curl -fsS http://localhost:3000/api/health >/dev/null 2>&1; then
@@ -137,7 +138,7 @@ if curl -fsS http://localhost:3000/api/health >/dev/null 2>&1; then
   echo "  Open:      https://$DOMAIN   (HTTPS can take a minute the first time)"
   echo "  Admin:     username 'admin', password: $ADMIN_PASSWORD"
   echo "  Settings:  $ENV_FILE    Data: $DATA_DIR"
-  echo "  Update:    sudo bash $APP_DIR/deploy/update.sh"
+  echo "  Updates:   automatic (checks GitHub every 5 minutes); to update now: sudo bash $APP_DIR/deploy/update.sh"
   echo "  Logs:      sudo journalctl -u gospel-banker -f"
   echo
   echo "If the page does not open, check that ports 80 and 443 are open in Oracle's"
