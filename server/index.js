@@ -163,9 +163,19 @@ app.get('/api/conversations/:id/messages', auth, (req, res) => {
     FROM messages m JOIN users u ON u.id = m.sender_id
     LEFT JOIN messages r ON r.id = m.reply_to LEFT JOIN users ru ON ru.id = r.sender_id
     WHERE m.conversation_id = ? AND m.id < ? ORDER BY m.id DESC LIMIT 50`).all(cid, before).reverse();
-  if (rows.length) q('UPDATE conversation_members SET last_read_id = MAX(last_read_id, ?) WHERE conversation_id = ? AND user_id = ?').run(rows.at(-1).id, cid, req.user.id);
+  if (rows.length) markRead(cid, req.user.id, rows.at(-1).id);
+  // Read ticks: a message is read once every other member has opened the chat past it.
+  const reads = readMap(cid);
+  for (const m of rows) m.read = Object.entries(reads).every(([u, last]) => Number(u) === m.sender_id || last >= m.id);
   res.json(rows);
 });
+
+// Read receipts: how far each member has read, and telling the chat when that moves.
+const readMap = (cid) => Object.fromEntries(q('SELECT user_id, last_read_id FROM conversation_members WHERE conversation_id = ?').all(cid).map((r) => [r.user_id, r.last_read_id]));
+function markRead(cid, uid, messageId) {
+  const r = q('UPDATE conversation_members SET last_read_id = ? WHERE conversation_id = ? AND user_id = ? AND last_read_id < ?').run(messageId, cid, uid, messageId);
+  if (r.changes) io.to(`conv:${cid}`).emit('conversation:read', { conversationId: cid, reads: readMap(cid) });
+}
 
 // Swipe-to-reply: a message can quote an earlier message from the same chat.
 addColumn('messages', 'reply_to', 'INTEGER');
@@ -182,6 +192,8 @@ async function sendMessage(user, cid, body, replyTo) {
     .get(cid, user.id, verdict.text, verdict.flagged ? 1 : 0, quoted?.id ?? null);
   msg.sender_name = user.display_name;
   if (quoted) { msg.reply_body = quoted.body; msg.reply_name = quoted.display_name; }
+  q('UPDATE conversation_members SET last_read_id = ? WHERE conversation_id = ? AND user_id = ? AND last_read_id < ?').run(msg.id, cid, user.id, msg.id);
+  msg.read = false;
   io.to(`conv:${cid}`).emit('message:new', msg);
   const members = q('SELECT user_id FROM conversation_members WHERE conversation_id = ?').all(cid);
   for (const m of members) io.to(`user:${m.user_id}`).emit('conversation:activity', { id: cid });
@@ -335,7 +347,8 @@ io.on('connection', (socket) => {
     if (typeof ack === 'function') ack(r);
   });
   socket.on('message:read', ({ conversationId, messageId } = {}) => {
-    q('UPDATE conversation_members SET last_read_id = MAX(last_read_id, ?) WHERE conversation_id = ? AND user_id = ?').run(Number(messageId) || 0, Number(conversationId), uid);
+    const cid = Number(conversationId);
+    if (memberOf(cid, uid)) markRead(cid, uid, Number(messageId) || 0);
   });
   socket.on('typing', ({ conversationId } = {}) => {
     if (memberOf(conversationId, uid)) socket.to(`conv:${conversationId}`).emit('typing', { conversationId, name: socket.user.display_name });

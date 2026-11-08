@@ -308,3 +308,5 @@ a.on-dark { color: #fff; }
 .reply-bar .rb-text b { display: block; color: var(--gold); font-size: .78rem; }
 .reply-bar .rb-text span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
 .messages { overflow-x: hidden; }
+.ticks { margin-left: 4px; font-size: .78rem; letter-spacing: -3px; color: var(--muted); }
+.ticks.read { color: var(--gold); font-weight: 700; }
