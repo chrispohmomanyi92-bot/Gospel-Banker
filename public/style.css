@@ -331,3 +331,11 @@ a.on-dark { color: #fff; }
 .give-bank { white-space: pre-wrap; }
 .give-link { display: block; text-align: center; text-decoration: none; margin: 12px 0; padding: 12px; }
 .give-thanks { text-align: center; }
+.give-online { display: grid; gap: 10px; margin: 14px 0; }
+.give-pay { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 12px; border-radius: 12px; text-decoration: none; font-weight: 700; font-size: 1.05rem; }
+.give-pay small { font-weight: 500; font-size: .78rem; opacity: .85; }
+.give-pay.paypal { background: #ffc439; color: #003087; }
+.give-pay.paypal .pp { font-style: italic; font-size: 1.25rem; letter-spacing: -.3px; }
+.give-pay.paypal .pp i { color: #009cde; }
+.give-pay.card { background: var(--btn); color: #fff; }
+.give-pay:hover { filter: brightness(1.05); }

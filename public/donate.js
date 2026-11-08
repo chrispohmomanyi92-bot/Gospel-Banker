@@ -30,13 +30,16 @@ async function openDonate() {
     dlg.innerHTML = `<div class="give-head"><span class="give-heart">♥</span><div><h2>${esc(d.title)}</h2></div>
         <button type="button" class="iconbtn" data-close aria-label="Close">✕</button></div>
       <p class="muted">${esc(d.message)}</p>
-      ${!d.ready ? `<div class="card small">Donation details are coming soon.${d.canEdit ? ' Tap <b>Set up giving</b> to add your M-Pesa, bank or giving link.' : ''}</div>` : ''}
+      ${!d.ready ? `<div class="card small">Donation details are coming soon.${d.canEdit ? ' Tap <b>Set up giving</b> to add PayPal, card, M-Pesa or bank details.' : ''}</div>` : ''}
+      ${d.paypal_url || d.card_url ? `<div class="give-online">
+        ${d.paypal_url ? `<a class="give-pay paypal" href="${esc(d.paypal_url)}" target="_blank" rel="noopener"><span class="pp">Pay<i>Pal</i></span><small>Give with PayPal</small></a>` : ''}
+        ${d.card_url ? `<a class="give-pay card" href="${esc(d.card_url)}" target="_blank" rel="noopener"><span>💳 Credit / debit card</span><small>Visa · Mastercard</small></a>` : ''}
+      </div>` : ''}
       ${mpesa ? `<section class="give-box"><div class="give-box-h">📱 M-Pesa</div>
         ${d.mpesa_paybill ? `<ol class="give-steps small"><li>M-Pesa › <b>Lipa na M-Pesa</b> › <b>Pay Bill</b></li><li>Enter the business number and account below</li><li>Enter the amount and your PIN</li></ol>` : `<ol class="give-steps small"><li>M-Pesa › <b>Lipa na M-Pesa</b> › <b>Buy Goods and Services</b></li><li>Enter the till number below, the amount and your PIN</li></ol>`}
         ${copyRow('Paybill (business number)', d.mpesa_paybill)}${copyRow('Account number', d.mpesa_account)}${copyRow('Till number', d.mpesa_till)}</section>` : ''}
       ${d.bank ? `<section class="give-box"><div class="give-box-h">🏦 Bank transfer</div><div class="give-bank">${esc(d.bank)}</div>
         <button type="button" class="btn small ghost" data-copy="${esc(d.bank)}" style="margin-top:8px">Copy bank details</button></section>` : ''}
-      ${d.link_url ? `<a class="btn gold give-link" href="${esc(d.link_url)}" target="_blank" rel="noopener">${esc(d.link_label || 'Give online')} ↗</a>` : ''}
       <p class="muted small give-thanks">Thank you, and God bless you! 🙏</p>
       ${d.canEdit ? `<button type="button" class="btn ghost small" data-edit style="width:100%">✏️ ${d.ready ? 'Edit giving details' : 'Set up giving'}</button>` : ''}`;
   };
@@ -47,12 +50,12 @@ async function openDonate() {
         ${f('title', 'Heading')}
         <label class="field"><span>Message</span><textarea name="message" rows="3">${esc(d.message)}</textarea></label>
         <p class="small muted" style="margin:4px 0 8px">Fill in only what you use. Leave the rest empty.</p>
+        ${f('paypal_url', 'PayPal link', 'e.g. paypal.me/yourname')}
+        ${f('card_url', 'Credit card payment link', 'e.g. a Stripe, Flutterwave or Paystack payment link')}
         ${f('mpesa_paybill', 'M-Pesa Paybill number', 'e.g. 123456')}
         ${f('mpesa_account', 'Paybill account number', 'e.g. GOSPEL or your phone number')}
         ${f('mpesa_till', 'M-Pesa Till number (Buy Goods)', 'e.g. 987654')}
         <label class="field"><span>Bank details</span><textarea name="bank" rows="3" placeholder="Bank, branch, account name and number">${esc(d.bank)}</textarea></label>
-        ${f('link_url', 'Online giving link (card, PayPal…)', 'https://…', 'url')}
-        ${f('link_label', 'Button text for the link', 'Give online')}
         <div class="row"><button class="btn">Save</button><button type="button" class="btn ghost" data-back>Cancel</button></div>
       </form>`;
     $('#giveForm', dlg).onsubmit = async (e) => {
