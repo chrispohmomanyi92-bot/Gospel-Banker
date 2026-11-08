@@ -21,7 +21,7 @@ export async function downloadVideo(v, onProgress = () => {}) {
   const job = (async () => {
     navigator.storage?.persist?.().catch(() => {});
     const res = await fetch(v.src);
-    if (!res.ok) throw new Error('Could not download this video.');
+    if (!res.ok) throw new Error('Could not download this. Please try again.');
     const total = Number(res.headers.get('content-length')) || v.size || 0;
     const type = res.headers.get('content-type') || v.mime || 'video/mp4';
     const reader = res.body.getReader();
@@ -42,7 +42,7 @@ export async function downloadVideo(v, onProgress = () => {}) {
     }
     const list = listDownloads().filter((d) => d.id !== id);
     list.unshift({
-      id, title: v.title, channel_name: v.channel_name, category_label: v.category_label, src: v.src, thumb_url: v.thumb_url || null,
+      id, kind: v.kind || 'video', title: v.title, channel_name: v.channel_name, category_label: v.category_label, src: v.src, thumb_url: v.thumb_url || null,
       duration: v.duration || 0, size: blob.size, saved_at: new Date().toISOString(),
     });
     saveList(list);

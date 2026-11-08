@@ -1,5 +1,6 @@
 // The Gospel Banker: single-page client (no build step).
 import { renderVideos, pendingVideosHtml, videoShelfHtml } from './videos.js';
+import { renderStores, pendingStoresHtml, storeShelf } from './stores.js';
 const $ = (sel, el = document) => el.querySelector(sel);
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const initials = (name) => (name || '?').split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
@@ -81,7 +82,7 @@ function logout() {
 
 // ---------------- shell ----------------
 const TABS = [
-  ['feed', '🏠', 'Home'], ['videos', '🎬', 'Videos'], ['chats', '💬', 'Chats'], ['library', '📚', 'Library'], ['profile', '👤', 'Profile'],
+  ['feed', '🏠', 'Home'], ['videos', '🎬', 'Videos'], ['stores', '🛍️', 'Stores'], ['chats', '💬', 'Chats'], ['library', '📚', 'Library'], ['profile', '👤', 'Profile'],
 ];
 
 function renderShell() {
@@ -121,6 +122,7 @@ async function route() {
   try {
     if (tab === 'feed') await renderFeed(view, rest[0]);
     else if (tab === 'videos') await renderVideos(view, rest.map((r) => r.split('?')[0]));
+    else if (tab === 'stores') await renderStores(view, rest.map((r) => r.split('?')[0]));
     else if (tab === 'chats') await renderChats(view, rest[0]);
     else if (tab === 'library') await (rest[0] ? renderSection(view, rest[0]) : renderLibrary(view));
     else if (tab === 'profile') await renderProfile(view, rest[0]);
@@ -150,7 +152,7 @@ function greeting() {
 }
 
 const QUICK = [
-  ['prayer', '🙏', 'Ask for prayer'], ['testimony', '🙌', 'Share a testimony'], ['#/videos/upload', '⬆️', 'Upload a video'], ['#/chats', '💬', 'Message someone'],
+  ['prayer', '🙏', 'Ask for prayer'], ['testimony', '🙌', 'Share a testimony'], ['#/videos/upload', '⬆️', 'Upload to channel'], ['#/chats', '💬', 'Message someone'],
 ];
 // Library sections previewed as shelves on the home screen, in this order.
 const PREVIEW_SECTIONS = ['sermons', 'jobs', 'egw', 'events', 'devotionals', 'health', 'music', 'bible-study', 'news', 'mission'];
@@ -183,6 +185,10 @@ async function renderFeed(view, kind) {
     <section class="home-sec" id="homeVideos" hidden>
       <div class="sec-head"><h2>New videos</h2><a href="#/videos">See all ›</a></div>
       <div class="shelf" id="videoShelf"></div>
+    </section>
+    <section class="home-sec" id="homeStores" hidden>
+      <div class="sec-head"><h2>🛍️ Member stores</h2><a href="#/stores">All stores ›</a></div>
+      <div class="shelf" id="storeShelf"></div>
     </section>
     <div id="previews"></div>
     <section class="home-sec">
@@ -234,7 +240,8 @@ function drawLauncher() {
   const el = $('#launcher');
   if (!el) return;
   const unread = state.convs.reduce((n, c) => n + (c.unread || 0), 0);
-  const fixed = [['#/videos', '🎬', 'Videos'], ['#/videos/downloads', '⬇️', 'Downloads'], ['#/chats', '💬', 'Chats', unread]];
+  const fixed = [['#/videos', '🎬', 'Videos'], ['#/videos/channels', '📺', 'Channels'], ['#/videos/preachers', '🎤', 'Preachers & authors'],
+    ['#/stores', '🛍️', 'Member stores'], ['#/videos/downloads', '⬇️', 'Downloads'], ['#/chats', '💬', 'Chats', unread]];
   const secs = state.sections.map((s) => [`#/library/${s.key}`, s.icon, s.label, 0, s.count]);
   el.innerHTML = [...fixed, ...secs].map(([href, icon, label, badge]) =>
     `<a href="${href}"><span class="li">${icon}${badge ? `<span class="badge">${badge}</span>` : ''}</span><span class="ll">${esc(label)}</span></a>`).join('');
@@ -265,9 +272,10 @@ async function loadHomeExtras() {
     drawLauncher();
   } catch { /* library unavailable */ }
   drawChatPreview();
-  const [vids, items] = await Promise.all([api('/videos?limit=8').catch(() => []), api('/content').catch(() => [])]);
+  const [vids, items, stores] = await Promise.all([api('/videos?limit=8').catch(() => []), api('/content').catch(() => []), storeShelf()]);
   const box = $('#homeVideos');
   if (box && vids.length) { $('#videoShelf').innerHTML = await videoShelfHtml(vids); box.hidden = false; }
+  if ($('#homeStores') && stores) { $('#storeShelf').innerHTML = stores; $('#homeStores').hidden = false; }
   const el = $('#previews');
   if (!el) return;
   el.innerHTML = PREVIEW_SECTIONS.map((key) => {
@@ -385,7 +393,8 @@ async function openConversation(id) {
   const sub = c.is_group ? c.members.map((m) => m.display_name.split(' ')[0]).join(', ')
     : (state.online.has(c.members.find((m) => m.id !== state.user.id)?.id) ? 'online' : c.members.find((m) => m.id !== state.user.id)?.headline || '');
   pane.innerHTML = `<div class="chat-header"><a class="iconbtn" href="#/chats" style="text-decoration:none">←</a>${convAvatar(c)}
-      <div style="min-width:0"><b>${esc(c.title)}</b><div class="muted small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(sub)}</div></div></div>
+      <div style="min-width:0;flex:1"><b>${esc(c.title)}</b><div class="muted small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(sub)}</div></div>
+      ${c.store_id ? `<a class="btn small ghost" href="#/stores/${c.store_id}" style="text-decoration:none;white-space:nowrap">🛍️ Store</a>` : ''}</div>
     <div class="messages" id="msgs"></div><div class="typing" id="typing"></div>
     <form class="composer" id="sendForm"><textarea name="body" rows="1" placeholder="Message" required></textarea><button class="btn" title="Send">➤</button></form>`;
   const msgs = await api(`/conversations/${id}/messages`);
@@ -396,6 +405,9 @@ async function openConversation(id) {
   socket?.emit('conversation:join', id);
 
   const form = $('#sendForm'); const ta = $('textarea', form);
+  // A message started elsewhere, e.g. "Is this product available?" from a store.
+  const draft = sessionStorage.getItem('gb_draft_' + id);
+  if (draft) { sessionStorage.removeItem('gb_draft_' + id); ta.value = draft; ta.focus(); }
   let lastTyping = 0;
   ta.oninput = () => {
     ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px';
@@ -498,6 +510,7 @@ async function renderSection(view, key) {
       <div class="row" style="margin-top:8px"><input type="search" name="q" placeholder="e.g. Steps to Christ, health reform"><button class="btn">Search</button></div>
       <div class="muted small" style="margin-top:6px">Opens the official EGW Writings site.</div></form>`
     : VIDEO_LINK[key] ? `<a class="card row" style="text-decoration:none;color:inherit" href="#/videos/c/${VIDEO_LINK[key]}"><span style="font-size:1.6rem">▶️</span><div style="flex:1"><b>Watch ${esc(sec.label)} videos</b><div class="muted small">Uploaded by the community, right here in the app</div></div><span>›</span></a>` + (key === 'testimonies' ? `<div class="card">Have a written testimony? <a href="#/feed/testimony">Share it on the Feed</a>.</div>` : '')
+    : key === 'stores' ? `<a class="card row" style="text-decoration:none;color:inherit" href="#/stores"><span style="font-size:1.6rem">🛍️</span><div style="flex:1"><b>Member stores</b><div class="muted small">Books, health foods, crafts and services sold by members. Open your own store too.</div></div><span>›</span></a>`
     : key === 'testimonies' ? `<div class="card">Have a testimony? <a href="#/feed/testimony">Share it on the Feed</a> and choose "Testimony".</div>` : '';
   view.innerHTML = `<div class="page">
     <a href="#/library" class="muted small" style="text-decoration:none">← Library</a>
@@ -549,7 +562,7 @@ async function renderProfile(view, userId) {
       <h2>${esc(u.display_name)}</h2><div class="muted">@${esc(u.username)}${u.role !== 'member' ? ` · <span class="tag">${u.role}</span>` : ''}</div>
       ${u.headline ? `<p><b>${esc(u.headline)}</b></p>` : ''}${u.church ? `<p class="muted">⛪ ${esc(u.church)}</p>` : ''}
       ${u.bio ? `<p>${esc(u.bio)}</p>` : ''}<p class="muted small">${u.posts} posts</p>
-      <div class="row" style="justify-content:center"><button class="btn gold" id="msgBtn">✉️ Message</button><a class="btn ghost" href="#/videos/channel/${u.id}" style="text-decoration:none">🎬 Channel</a></div></div></div>`;
+      <div class="row" style="justify-content:center"><button class="btn gold" id="msgBtn">✉️ Message</button><a class="btn ghost" href="#/videos/channel/${u.id}" style="text-decoration:none">🎬 Channel & stores</a></div></div></div>`;
     $('#msgBtn').onclick = () => openDirect(u.id);
     return;
   }
@@ -560,7 +573,7 @@ async function renderProfile(view, userId) {
     <label class="field"><span>Headline (profession or ministry)</span><input type="text" name="headline" value="${esc(u.headline)}"></label>
     <label class="field"><span>Home church</span><input type="text" name="church" value="${esc(u.church)}"></label>
     <label class="field"><span>About you</span><textarea name="bio">${esc(u.bio)}</textarea></label>
-    <div class="row"><button class="btn">Save</button><a class="btn ghost" href="#/videos/channel/${u.id}" style="text-decoration:none">🎬 My channel</a><span class="spacer"></span><button type="button" class="btn ghost" id="logoutBtn">Sign out</button></div></form>
+    <div class="row"><button class="btn">Save</button><a class="btn ghost" href="#/videos/channel/${u.id}" style="text-decoration:none">🎬 My channel</a><a class="btn ghost" href="#/stores/mine" style="text-decoration:none">🛍️ My stores</a><span class="spacer"></span><button type="button" class="btn ghost" id="logoutBtn">Sign out</button></div></form>
     <div class="card small muted">🛡️ To keep this a safe place, messages, posts and comments are checked for abusive language${state.aiModeration ? ' by an AI filter' : ''}. Mild words are hidden; threats and harassment are blocked, and repeat offenders are muted.</div></div>`;
   $('#logoutBtn').onclick = logout;
   $('#profileForm').onsubmit = async (e) => {
@@ -574,8 +587,8 @@ async function renderProfile(view, userId) {
 async function renderAdmin(view) {
   const [pending, log] = await Promise.all([api('/admin/pending'), api('/admin/moderation-log')]);
   if (!state.sections.length) state.sections = await api('/sections');
-  const videosBlock = await pendingVideosHtml();
-  view.innerHTML = `<div class="page"><h2>Moderation</h2>${videosBlock}
+  const [videosBlock, storesBlock] = await Promise.all([pendingVideosHtml(), pendingStoresHtml()]);
+  view.innerHTML = `<div class="page"><h2>Moderation</h2>${videosBlock}${storesBlock}
     <h3 style="margin-top:24px">Library suggestions waiting for review (${pending.length})</h3>
     ${pending.length ? pending.map((it) => `<div data-id="${it.id}">${itemHtml(it)}<div class="row" style="margin:-6px 0 14px"><span class="muted small" style="flex:1">Suggested by ${esc(it.submitted_by_name || 'unknown')}</span>
       <button class="btn small danger" data-s="rejected">Reject</button><button class="btn small" data-s="approved">Approve</button></div></div>`).join('') : '<div class="empty">All caught up.</div>'}
@@ -589,7 +602,14 @@ async function renderAdmin(view) {
     if (vb) {
       const card = vb.closest('[data-vid]');
       await api('/admin/videos/' + card.dataset.vid, { method: 'POST', body: { status: vb.dataset.vs } });
-      card.remove(); toast(vb.dataset.vs === 'approved' ? 'Video published' : 'Video rejected');
+      card.remove(); toast(vb.dataset.vs === 'approved' ? 'Published' : 'Rejected');
+      return;
+    }
+    const sb = e.target.closest('button[data-ss]');
+    if (sb) {
+      const card = sb.closest('[data-sid]');
+      await api('/admin/stores/' + card.dataset.sid, { method: 'POST', body: { status: sb.dataset.ss } });
+      card.remove(); toast(sb.dataset.ss === 'approved' ? 'Store approved' : 'Store rejected');
       return;
     }
     const b = e.target.closest('button[data-s]');
