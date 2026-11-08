@@ -286,3 +286,25 @@ a.on-dark { color: #fff; }
 .pbody { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 2px; flex: 1; }
 .price { color: var(--gold); font-weight: 700; }
 @media (max-width: 420px) { .pgrid { grid-template-columns: repeat(2, 1fr); gap: 10px; } .tabs a { font-size: .68rem; padding-left: 2px; padding-right: 2px; } }
+
+/* swipe to reply */
+.bubble { position: relative; touch-action: pan-y; user-select: text; }
+.bubble.swiping { user-select: none; }
+.swipe-ico { position: absolute; top: 50%; left: -34px; transform: translateY(-50%) scale(.6); opacity: 0; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--surface); color: var(--ink); box-shadow: var(--shadow); font-size: .9rem; transition: opacity .1s, transform .1s; pointer-events: none; }
+.bubble.left .swipe-ico { left: auto; right: -34px; }
+.bubble.swiping .swipe-ico { opacity: .6; }
+.bubble.armed .swipe-ico { opacity: 1; transform: translateY(-50%) scale(1); }
+.bubble .quote { display: block; width: 100%; text-align: left; border: 0; border-left: 3px solid var(--gold); background: rgba(0,0,0,.05); border-radius: 6px; padding: 4px 8px; margin: 2px 0 4px; cursor: pointer; font-size: .85rem; }
+:root[data-theme="dark"] .bubble .quote { background: rgba(255,255,255,.07); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .bubble .quote { background: rgba(255,255,255,.07); } }
+.bubble .quote b { display: block; color: var(--gold); font-size: .78rem; }
+.bubble .quote span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--muted); white-space: pre-wrap; }
+.bubble .reply-btn { display: none; background: none; border: 0; padding: 0 0 0 6px; cursor: pointer; color: var(--muted); font-size: .8rem; }
+@media (hover: hover) and (pointer: fine) { .bubble:hover .reply-btn { display: inline; } }
+.bubble.flash { animation: flash 1.2s; }
+@keyframes flash { 0%, 40% { box-shadow: 0 0 0 3px var(--gold); } 100% { box-shadow: 0 1px 1px rgba(0,0,0,.06); } }
+.reply-bar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: var(--surface); border-top: 1px solid var(--line); }
+.reply-bar .rb-text { flex: 1; min-width: 0; border-left: 3px solid var(--gold); padding-left: 8px; font-size: .85rem; }
+.reply-bar .rb-text b { display: block; color: var(--gold); font-size: .78rem; }
+.reply-bar .rb-text span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+.messages { overflow-x: hidden; }
