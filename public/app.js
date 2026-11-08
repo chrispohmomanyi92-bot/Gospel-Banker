@@ -647,7 +647,8 @@ async function renderProfile(view, userId) {
     <label class="field"><span>Headline (profession or ministry)</span><input type="text" name="headline" value="${esc(u.headline)}"></label>
     <label class="field"><span>Home church</span><input type="text" name="church" value="${esc(u.church)}"></label>
     <label class="field"><span>About you</span><textarea name="bio">${esc(u.bio)}</textarea></label>
-    <div class="row"><button class="btn">Save</button><a class="btn ghost" href="#/videos/channel/${u.id}" style="text-decoration:none">🎬 My channel</a><a class="btn ghost" href="#/stores/mine" style="text-decoration:none">🛍️ My stores</a><span class="spacer"></span><button type="button" class="btn ghost" id="logoutBtn">Sign out</button></div></form>
+    <div class="profile-actions"><button class="btn">Save</button><a class="btn ghost" href="#/videos/channel/${u.id}">🎬 My channel</a><a class="btn ghost" href="#/stores/mine">🛍️ My stores</a></div>
+    <button type="button" class="btn ghost signout" id="logoutBtn">↪ Sign out</button></form>
     <div class="card small muted">🛡️ To keep this a safe place, messages, posts and comments are checked for abusive language${state.aiModeration ? ' by an AI filter' : ''}. Mild words are hidden; threats and harassment are blocked, and repeat offenders are muted.</div></div>`;
   $('#logoutBtn').onclick = logout;
   $('#profileForm').onsubmit = async (e) => {
