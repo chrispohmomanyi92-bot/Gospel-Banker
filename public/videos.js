@@ -1,5 +1,6 @@
 // YouTube-style video section: browse by category, watch, upload, channels.
 import { api, esc, initials, toast, linkify, state } from './app.js';
+import { offlineSupported, listDownloads, isDownloaded, downloading, downloadVideo, removeDownload, offlineUrl, fmtSize } from './offline.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 let categories = [];
@@ -36,10 +37,62 @@ function cardHtml(v, { compact = false, showChannel = true } = {}) {
       <div class="muted small">${showChannel ? esc(v.channel_name) + '<br>' : ''}${fmtViews(v.views)} · ${ago(v.created_at)}</div></div></div></a>`;
 }
 
+async function renderDownloads(view, playId) {
+  const list = listDownloads();
+  const total = list.reduce((n, d) => n + (d.size || 0), 0);
+  view.innerHTML = `<div class="page wide">
+    <a href="#/videos" class="muted small" style="text-decoration:none">← Videos</a>
+    <h2 style="margin-top:6px">⬇️ Downloads</h2>
+    <p class="muted small" style="margin-top:0">Videos saved on this device. They play without internet.${list.length ? ` Using ${fmtSize(total)}.` : ''}</p>
+    ${offlineSupported() ? '' : '<div class="card">This browser cannot save videos for offline watching. Try Chrome or Safari.</div>'}
+    <div id="dlPlayer"></div>
+    ${list.length ? `<div class="dl-list">${list.map((d) => `<div class="dl-item" data-id="${d.id}">
+      <button class="dl-thumb" data-act="play" title="Play"><span class="vthumb">${d.thumb_url ? `<img data-thumb="${esc(d.thumb_url)}" alt="">` : '<span class="vthumb-ph">🎬</span>'}
+        ${d.duration ? `<span class="vdur">${fmtDuration(d.duration)}</span>` : ''}</span></button>
+      <div style="min-width:0;flex:1"><div class="vtitle">${esc(d.title)}</div>
+        <div class="muted small">${esc(d.channel_name || '')}${d.size ? ' · ' + fmtSize(d.size) : ''}</div>
+        <div class="row" style="margin-top:6px;gap:6px"><button class="btn small" data-act="play">▶ Play</button>
+          <button class="btn small ghost" data-act="file" title="Save a copy to your phone's files">💾 Save file</button>
+          <button class="btn small ghost" data-act="remove" title="Remove">🗑️</button></div></div></div>`).join('')}</div>`
+      : `<div class="empty">No downloads yet. Open any video and tap <b>⬇️ Download</b> to watch it later without internet.</div>`}
+  </div>`;
+  // Thumbnails come from the saved copies too.
+  view.querySelectorAll('img[data-thumb]').forEach(async (img) => { img.src = (await offlineUrl(img.dataset.thumb).catch(() => null)) || img.dataset.thumb; });
+  const play = async (d) => {
+    const url = await offlineUrl(d.src);
+    if (!url) return toast('This download is missing. Please download it again.', true);
+    $('#dlPlayer').innerHTML = `<div class="player" style="margin-bottom:10px"><video src="${url}" controls autoplay playsinline></video></div><h3>${esc(d.title)}</h3>`;
+    $('#dlPlayer').scrollIntoView({ behavior: 'smooth' });
+  };
+  view.onclick = async (e) => {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    const d = list.find((x) => x.id === Number(b.closest('[data-id]').dataset.id));
+    if (b.dataset.act === 'play') play(d);
+    else if (b.dataset.act === 'file') {
+      const url = await offlineUrl(d.src);
+      if (!url) return;
+      const a = Object.assign(document.createElement('a'), { href: url, download: `${d.title.replace(/[^\w\- ]+/g, '').trim() || 'video'}.mp4` });
+      document.body.append(a); a.click(); a.remove();
+    } else if (b.dataset.act === 'remove' && confirm('Remove this video from your downloads?')) {
+      await removeDownload(d.id); toast('Removed'); renderDownloads(view);
+    }
+  };
+  const first = list.find((d) => d.id === playId);
+  if (first) play(first);
+}
+
+// Small video cards for the home screen shelf.
+export async function videoShelfHtml(vids) {
+  if (!categories.length) await loadCategories().catch(() => {});
+  return vids.map((v) => cardHtml(v)).join('');
+}
+
 const gridHtml = (vids, empty = 'No videos here yet. Be the first to upload one!') =>
   vids.length ? `<div class="vgrid">${vids.map((v) => cardHtml(v)).join('')}</div>` : `<div class="empty">${empty}</div>`;
 
 export async function renderVideos(view, [sub, arg] = []) {
+  if (sub === 'downloads') return renderDownloads(view, Number(arg) || 0);
   if (!categories.length) await loadCategories();
   if (sub === 'watch') return renderWatch(view, Number(arg));
   if (sub === 'upload') return renderUpload(view);
@@ -59,6 +112,7 @@ async function renderBrowse(view, sub, arg) {
       <a class="chip ${!cat && !mode && !term ? 'active' : ''}" href="#/videos">All</a>
       <a class="chip ${mode === 'popular' ? 'active' : ''}" href="#/videos/popular">🔥 Popular</a>
       <a class="chip ${mode === 'subs' ? 'active' : ''}" href="#/videos/subs">⭐ Subscriptions</a>
+      <a class="chip" href="#/videos/downloads">⬇️ Downloads${listDownloads().length ? ` (${listDownloads().length})` : ''}</a>
       ${categories.map((c) => `<a class="chip ${cat === c.key ? 'active' : ''}" href="#/videos/c/${c.key}">${c.icon} ${esc(c.label)}</a>`).join('')}
     </div><div id="vBody"><div class="empty">Loading…</div></div></div>`;
   $('#vSearch').onsubmit = (e) => {
@@ -104,6 +158,7 @@ async function renderWatch(view, id) {
         <span class="spacer"></span>
         <button class="btn small ghost" id="likeBtn">${v.liked ? '❤️' : '🤍'} <span>${v.likes}</span> Amen</button>
         <button class="btn small ghost" id="shareBtn">↗ Share</button>
+        ${offlineSupported() && v.status === 'approved' ? `<button class="btn small ghost" id="dlBtn"></button>` : ''}
         ${mine ? '' : `<button class="btn small ghost" id="dmBtn">✉️ Message</button>`}
         ${mine || staff ? `<button class="btn small ghost" id="delBtn">🗑️</button>` : ''}
       </div>
@@ -138,6 +193,27 @@ async function renderWatch(view, id) {
     const url = location.href;
     try { if (navigator.share) await navigator.share({ title: v.title, url }); else { await navigator.clipboard.writeText(url); toast('Link copied'); } } catch {}
   };
+  const dl = $('#dlBtn');
+  if (dl) {
+    const paint = (txt) => { dl.textContent = txt || (isDownloaded(id) ? '✓ Downloaded' : '⬇️ Download'); };
+    paint(downloading(id) ? '⬇️ Downloading…' : '');
+    // Play the saved copy when there is one, so it works without internet.
+    if (isDownloaded(id)) offlineUrl(v.src).then((u) => { if (u && player.paused && !player.currentTime) player.src = u; }).catch(() => {});
+    dl.onclick = async () => {
+      if (downloading(id)) return;
+      if (isDownloaded(id)) {
+        if (!confirm('Remove this video from your downloads?')) return;
+        await removeDownload(id); paint(); toast('Removed from downloads'); return;
+      }
+      paint('⬇️ 0%');
+      try {
+        await downloadVideo(v, (f) => { if (dl.isConnected) paint(f == null ? '⬇️ Downloading…' : `⬇️ ${Math.round(f * 100)}%`); });
+        paint(); toast('Saved! Watch it any time from Videos › Downloads, even offline.');
+      } catch (err) {
+        paint(); toast(/quota/i.test(err.name + err.message) ? 'Not enough space on this device to save the video.' : err.message, true);
+      }
+    };
+  }
   const dm = $('#dmBtn');
   if (dm) dm.onclick = async () => {
     const { id: cid } = await api('/conversations', { method: 'POST', body: { user_ids: [v.uploader_id] } });
