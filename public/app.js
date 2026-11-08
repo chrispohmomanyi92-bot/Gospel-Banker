@@ -1,4 +1,5 @@
 // The Gospel Banker: single-page client (no build step).
+import { mountDonateButton } from './donate.js';
 import { renderVideos, pendingVideosHtml, videoShelfHtml } from './videos.js';
 import { renderStores, pendingStoresHtml, storeShelf } from './stores.js';
 const $ = (sel, el = document) => el.querySelector(sel);
@@ -73,6 +74,7 @@ function renderAuth(mode = 'login') {
 }
 
 function logout() {
+  document.getElementById('giveFab')?.remove();
   localStorage.removeItem('gb_token'); localStorage.removeItem('gb_user');
   state.token = null; state.user = null;
   socket?.disconnect(); socket = null;
@@ -748,6 +750,7 @@ async function boot() {
     state.user = saved;
   }
   renderShell();
+  mountDonateButton();
   connectSocket();
   loadConvs().catch(() => {});
   if ('Notification' in window && Notification.permission === 'default') setTimeout(() => Notification.requestPermission().catch(() => {}), 4000);
