@@ -383,7 +383,18 @@ function drawConvList(activeId) {
 function bubbleHtml(m, isGroup) {
   const me = m.sender_id === state.user.id;
   const quote = m.reply_to ? `<button type="button" class="quote" data-jump="${m.reply_to}"><b>${esc(m.reply_name || 'Message')}</b><span>${esc(m.reply_body ?? 'Original message not loaded')}</span></button>` : '';
-  return `<div class="bubble ${me ? 'me' : ''} ${m.flagged ? 'flagged' : ''}" data-id="${m.id}" data-name="${esc(m.sender_name)}"><span class="swipe-ico" aria-hidden="true">↩</span>${isGroup && !me ? `<div class="who">${esc(m.sender_name)}</div>` : ''}${quote}<div class="text">${linkify(m.body)}</div><div class="time">${when(m.created_at)}<button type="button" class="reply-btn" title="Reply">↩</button></div></div>`;
+  return `<div class="bubble ${me ? 'me' : ''} ${m.flagged ? 'flagged' : ''}" data-id="${m.id}" data-name="${esc(m.sender_name)}"><span class="swipe-ico" aria-hidden="true">↩</span>${isGroup && !me ? `<div class="who">${esc(m.sender_name)}</div>` : ''}${quote}<div class="text">${linkify(m.body)}</div><div class="time">${when(m.created_at)}${me ? ticksHtml(m.read) : ''}<button type="button" class="reply-btn" title="Reply">↩</button></div></div>`;
+}
+
+// ✓ sent, ✓✓ (blue) read by everyone else in the chat.
+const ticksHtml = (read) => `<span class="ticks ${read ? 'read' : ''}" title="${read ? 'Read' : 'Delivered'}">${read ? '✓✓' : '✓'}</span>`;
+function applyReads(reads) {
+  document.querySelectorAll('#msgs .bubble.me').forEach((b) => {
+    const id = Number(b.dataset.id);
+    const read = Object.entries(reads).every(([u, last]) => Number(u) === state.user.id || last >= id);
+    const t = $('.ticks', b);
+    if (t && read && !t.classList.contains('read')) t.outerHTML = ticksHtml(true);
+  });
 }
 
 // Swipe a message left or right (or tap ↩ on a computer) to reply to it.
@@ -686,6 +697,14 @@ function connectSocket() {
   if (typeof io !== 'function') return; // offline: the chat server is out of reach
   socket = io({ auth: { token: state.token } });
   socket.on('presence', ({ online }) => { state.online = new Set(online); });
+  socket.on('conversation:read', ({ conversationId, reads }) => {
+    if (state.activeConv?.id === conversationId) applyReads(reads);
+  });
+  // Coming back to an open chat counts as reading it.
+  document.addEventListener('visibilitychange', () => {
+    const last = document.querySelector('#msgs .bubble:last-child');
+    if (!document.hidden && state.activeConv && last && location.hash.startsWith('#/chats/')) socket.emit('message:read', { conversationId: state.activeConv.id, messageId: Number(last.dataset.id) });
+  });
   socket.on('message:new', (m) => {
     const c = state.convs.find((x) => x.id === m.conversation_id);
     if (c) { c.last_body = m.body; c.last_at = m.created_at; }
@@ -694,7 +713,7 @@ function connectSocket() {
       const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 120;
       box.insertAdjacentHTML('beforeend', bubbleHtml(m, state.activeConv.is_group));
       if (nearBottom || m.sender_id === state.user.id) box.scrollTop = box.scrollHeight;
-      socket.emit('message:read', { conversationId: m.conversation_id, messageId: m.id });
+      if (!document.hidden) socket.emit('message:read', { conversationId: m.conversation_id, messageId: m.id });
       $('#typing').textContent = '';
     } else if (c && m.sender_id !== state.user.id) {
       c.unread = (c.unread || 0) + 1;
