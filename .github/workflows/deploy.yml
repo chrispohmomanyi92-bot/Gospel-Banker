@@ -22,7 +22,10 @@ jobs:
     steps:
       - name: Skip when the server key is not set up
         if: env.SSH_KEY == ''
-        run: echo "::notice::Add the SERVER_SSH_KEY secret to deploy automatically."
+        # A hand-started run fails loudly so a missing secret isn't mistaken for a deploy.
+        run: |
+          echo "::warning::The SERVER_SSH_KEY secret is missing, so the server was NOT updated. Add it under Settings > Secrets and variables > Actions > Repository secrets."
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then exit 1; fi
       - name: Update the server
         if: env.SSH_KEY != ''
         run: |
