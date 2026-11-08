@@ -176,3 +176,66 @@ dialog::backdrop { background: rgba(10,15,30,.55); }
 .bar { height: 8px; background: var(--surface-2); border-radius: 999px; overflow: hidden; border: 1px solid var(--line); }
 #barFill { height: 100%; width: 0; background: var(--gold); transition: width .2s; }
 @media (min-width: 900px) { .page.wide .chips { flex-wrap: wrap; overflow: visible; } }
+
+/* home */
+.home { padding-top: 0; }
+.home-hero { margin: 0 -16px 16px; padding: 18px 16px 20px; background: linear-gradient(160deg, var(--brand) 0%, #23407a 100%); color: #fff; border-radius: 0 0 24px 24px; }
+.home-hero .hello { font-size: 1.45rem; font-weight: 700; letter-spacing: -.2px; }
+.home-hero .sabbath { font-size: .88rem; opacity: .85; margin: 2px 0 14px; }
+.verse-card { margin: 0; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14); border-radius: 16px; padding: 14px 16px; }
+.verse-card .eyebrow { font-size: .72rem; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--gold); }
+.verse-card blockquote { margin: 6px 0 10px; font-family: Georgia, "Times New Roman", serif; font-size: 1.12rem; line-height: 1.45; }
+.verse-card figcaption { display: flex; align-items: center; justify-content: space-between; color: var(--gold); font-weight: 600; font-size: .9rem; }
+.verse-share { background: rgba(255,255,255,.12); color: #fff; border: 0; border-radius: 999px; padding: 5px 12px; font-size: .82rem; cursor: pointer; }
+.quick { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 22px; }
+.quick a, .quick button { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; font-size: .75rem; line-height: 1.2; color: var(--ink); text-decoration: none; background: none; border: 0; cursor: pointer; padding: 0; }
+.quick .qi { width: 54px; height: 54px; border-radius: 18px; display: grid; place-items: center; font-size: 1.5rem; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow); }
+.quick a:hover .qi, .quick button:hover .qi { border-color: var(--gold); }
+.home-sec { margin-bottom: 22px; }
+.sec-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
+.sec-head h2 { font-size: 1.08rem; margin: 0; }
+.sec-head a { font-size: .85rem; font-weight: 600; text-decoration: none; }
+.launcher { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px 6px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 8px; box-shadow: var(--shadow); }
+.launcher a { display: flex; flex-direction: column; align-items: center; gap: 5px; text-decoration: none; color: var(--ink); min-width: 0; }
+.launcher .li { position: relative; width: 46px; height: 46px; border-radius: 14px; background: var(--gold-soft); display: grid; place-items: center; font-size: 1.35rem; }
+.launcher .li .badge { position: absolute; top: -4px; right: -6px; }
+.launcher .ll { font-size: .72rem; line-height: 1.2; text-align: center; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.launcher a:hover .li { outline: 2px solid var(--gold); }
+@media (min-width: 600px) { .launcher { grid-template-columns: repeat(6, 1fr); } }
+.mini-chats { padding: 0; overflow: hidden; }
+.mini-chats .chat-item:last-child { border-bottom: 0; }
+.shelf { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; margin: 0 -16px; padding: 2px 16px 8px; scrollbar-width: none; }
+.shelf::-webkit-scrollbar { display: none; }
+.shelf > * { scroll-snap-align: start; flex: none; }
+.shelf .vcard { width: 220px; }
+.shelf .vcard .avatar { display: none; }
+.pcard { width: 220px; display: flex; flex-direction: column; gap: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; box-shadow: var(--shadow); text-decoration: none; color: var(--ink); }
+.pcard:hover { border-color: var(--gold); }
+.pcard .pt { font-weight: 600; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.pcard .ps { font-size: .85rem; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.pcard .pm { margin-top: auto; padding-top: 4px; font-size: .75rem; color: var(--gold); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.composer-card textarea { min-height: 44px; border-radius: 22px; padding: 10px 16px; resize: none; transition: min-height .15s; }
+.composer-card.open textarea { min-height: 96px; border-radius: 12px; }
+.composer-more { display: none; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.composer-card.open .composer-more { display: flex; }
+.composer-more .btn { margin-left: auto; }
+.kind-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+.kind-pills input { position: absolute; opacity: 0; pointer-events: none; }
+.kind-pills span { display: inline-block; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); font-size: .82rem; cursor: pointer; }
+.kind-pills input:checked + span { background: var(--btn); border-color: var(--btn); color: #fff; }
+.kind-pills input:focus-visible + span { outline: 2px solid var(--gold); }
+.seg { display: flex; background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 3px; margin-bottom: 12px; }
+.seg a { flex: 1; text-align: center; padding: 6px 4px; border-radius: 9px; font-size: .82rem; color: var(--muted); text-decoration: none; white-space: nowrap; }
+.seg a.active { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: var(--shadow); }
+.card.post { border-left: 4px solid var(--line); }
+.card.post.k-prayer { border-left-color: #5b8def; }
+.card.post.k-testimony { border-left-color: var(--gold); }
+@media (min-width: 900px) { .home-hero { margin: 16px 0; border-radius: 20px; padding: 24px; } }
+.post-actions button { white-space: nowrap; }
+.card.post.k-post { border-left-color: transparent; }
+.shelf { scroll-padding-inline: 16px; }
+.dl-list { display: grid; gap: 14px; }
+.dl-item { display: flex; gap: 12px; align-items: flex-start; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; }
+.dl-thumb { flex: none; width: 150px; padding: 0; border: 0; background: none; cursor: pointer; }
+.dl-thumb .vthumb { display: block; border-radius: 8px; }
+@media (max-width: 420px) { .dl-thumb { width: 116px; } }

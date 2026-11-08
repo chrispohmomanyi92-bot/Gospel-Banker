@@ -8,6 +8,13 @@ A community app for the Seventh-day Adventist family: WhatsApp-style chat, a Fac
 - One-to-one and group chats, delivered in real time
 - Typing indicator, online status, unread badges, browser notifications
 
+**Home**
+- Greeting with a Sabbath countdown and the verse of the day (with a Share button)
+- Quick actions: ask for prayer, share a testimony, upload a video, message someone
+- "Everything in one place": one tap to Videos, Downloads, Chats and all 16 library sections
+- Previews of recent chats, new videos, sermons, jobs, EGW writings, events, devotionals and more
+- The community feed (posts, prayer requests and testimonies) underneath
+
 **Feed**
 - Posts, prayer requests and testimonies
 - "Amen" / "Praying" reactions and comments
@@ -24,6 +31,7 @@ A community app for the Seventh-day Adventist family: WhatsApp-style chat, a Fac
 - The home page has shelves per category, plus Popular, Subscriptions and search
 - The watch page has a player, views, "Amen" likes, comments, share, and more videos from the same category
 - Every member has a channel that others can subscribe to
+- **Download for offline:** tap ⬇️ Download on any video to keep a copy on the device. Videos › Downloads plays them without internet, and "Save file" puts a copy in the phone's files
 - Members' uploads wait for moderator approval before they go public; admins and moderators publish directly
 - Videos are stored in `data/media` (set `MEDIA_DIR` to change it). The default size limit is 500 MB per video (`MAX_VIDEO_MB`).
 

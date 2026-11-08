@@ -1,5 +1,5 @@
 // The Gospel Banker: single-page client (no build step).
-import { renderVideos, pendingVideosHtml } from './videos.js';
+import { renderVideos, pendingVideosHtml, videoShelfHtml } from './videos.js';
 const $ = (sel, el = document) => el.querySelector(sel);
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const initials = (name) => (name || '?').split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
@@ -72,7 +72,7 @@ function renderAuth(mode = 'login') {
 }
 
 function logout() {
-  localStorage.removeItem('gb_token');
+  localStorage.removeItem('gb_token'); localStorage.removeItem('gb_user');
   state.token = null; state.user = null;
   socket?.disconnect(); socket = null;
   location.hash = '';
@@ -81,7 +81,7 @@ function logout() {
 
 // ---------------- shell ----------------
 const TABS = [
-  ['feed', '🏠', 'Feed'], ['videos', '🎬', 'Videos'], ['chats', '💬', 'Chats'], ['library', '📚', 'Library'], ['profile', '👤', 'Profile'],
+  ['feed', '🏠', 'Home'], ['videos', '🎬', 'Videos'], ['chats', '💬', 'Chats'], ['library', '📚', 'Library'], ['profile', '👤', 'Profile'],
 ];
 
 function renderShell() {
@@ -105,6 +105,7 @@ function renderShell() {
 }
 
 function updateUnread() {
+  drawLauncher(); drawChatPreview();
   const n = state.convs.reduce((a, c) => a + (c.unread || 0), 0);
   const b = $('#unreadBadge');
   if (b) { b.hidden = !n; b.textContent = n; }
@@ -125,35 +126,157 @@ async function route() {
     else if (tab === 'profile') await renderProfile(view, rest[0]);
     else if (tab === 'admin') await renderAdmin(view);
     else location.hash = '#/feed';
-  } catch (err) { view.innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
+  } catch (err) {
+    const offline = err instanceof TypeError || !navigator.onLine;
+    view.innerHTML = offline
+      ? `<div class="empty"><div style="font-size:2.4rem">📴</div><b>You're offline</b><p>Connect to the internet to see the latest. Your downloaded videos still work.</p><a class="btn gold" href="#/videos/downloads" style="text-decoration:none">⬇️ Watch downloads</a></div>`
+      : `<div class="empty">${esc(err.message)}</div>`;
+  }
 }
 
 // ---------------- feed ----------------
 const KIND_LABEL = { post: 'Post', prayer: 'Prayer request', testimony: 'Testimony' };
 
+function greeting() {
+  const now = new Date();
+  const first = esc((state.user.display_name || state.user.username || '').split(/\s+/)[0]);
+  const day = now.getDay(), h = now.getHours();
+  // Sabbath runs from Friday evening to Saturday evening.
+  if (day === 6 || (day === 5 && h >= 18)) return { hello: `Happy Sabbath, ${first}`, note: '🕯️ Rest and rejoice in the Lord today' };
+  const part = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+  const days = 5 - day;
+  const note = days === 0 ? '🕯️ Sabbath begins this evening at sunset' : `🕯️ Sabbath begins in ${days} day${days === 1 ? '' : 's'}, Friday at sunset`;
+  return { hello: `${part}, ${first}`, note };
+}
+
+const QUICK = [
+  ['prayer', '🙏', 'Ask for prayer'], ['testimony', '🙌', 'Share a testimony'], ['#/videos/upload', '⬆️', 'Upload a video'], ['#/chats', '💬', 'Message someone'],
+];
+// Library sections previewed as shelves on the home screen, in this order.
+const PREVIEW_SECTIONS = ['sermons', 'jobs', 'egw', 'events', 'devotionals', 'health', 'music', 'bible-study', 'news', 'mission'];
+const SHELF_SIZE = 6;
+
 async function renderFeed(view, kind) {
   const [verse, ref] = VERSES[new Date().getDate() % VERSES.length];
-  view.innerHTML = `<div class="page">
-    <div class="hero"><div class="small" style="color:var(--gold);font-weight:600">VERSE OF THE DAY</div><div class="verse">"${esc(verse)}"</div><div class="ref">${esc(ref)}</div></div>
-    <form class="card" id="composer">
-      <textarea name="body" placeholder="Share encouragement, a testimony or a prayer request…" required></textarea>
-      <div class="row" style="margin-top:8px">
-        <select name="kind" style="width:auto"><option value="post">Post</option><option value="prayer">Prayer request</option><option value="testimony">Testimony</option></select>
-        <span class="spacer"></span><button class="btn">Share</button>
-      </div>
-    </form>
-    <div class="chips">${[['', 'All'], ['prayer', '🙏 Prayer'], ['testimony', '🙌 Testimonies'], ['post', 'Posts']].map(([k, l]) => `<a class="chip ${(kind || '') === k ? 'active' : ''}" href="#/feed${k ? '/' + k : ''}">${l}</a>`).join('')}</div>
-    <div id="posts"></div></div>`;
-  $('#composer').onsubmit = async (e) => {
+  const g = greeting();
+  view.innerHTML = `<div class="page home">
+    <section class="home-hero">
+      <div class="hello">${g.hello}</div>
+      <div class="sabbath">${g.note}</div>
+      <figure class="verse-card">
+        <div class="eyebrow">Verse of the day</div>
+        <blockquote>“${esc(verse)}”</blockquote>
+        <figcaption><span>${esc(ref)}</span><button class="verse-share" id="shareVerse" type="button">Share ↗</button></figcaption>
+      </figure>
+    </section>
+    <nav class="quick">${QUICK.map(([k, i, l]) => k.startsWith('#')
+      ? `<a href="${k}"><span class="qi">${i}</span>${l}</a>`
+      : `<button type="button" data-kind="${k}"><span class="qi">${i}</span>${l}</button>`).join('')}</nav>
+    <section class="home-sec">
+      <div class="sec-head"><h2>Everything in one place</h2></div>
+      <div class="launcher" id="launcher"></div>
+    </section>
+    <section class="home-sec" id="homeChats" hidden>
+      <div class="sec-head"><h2>Recent chats</h2><a href="#/chats">All chats ›</a></div>
+      <div class="card mini-chats" id="chatPreview"></div>
+    </section>
+    <section class="home-sec" id="homeVideos" hidden>
+      <div class="sec-head"><h2>New videos</h2><a href="#/videos">See all ›</a></div>
+      <div class="shelf" id="videoShelf"></div>
+    </section>
+    <div id="previews"></div>
+    <section class="home-sec">
+      <div class="sec-head"><h2>Community</h2></div>
+      <form class="card composer-card" id="composer">
+        <div class="row" style="align-items:flex-start;gap:12px">
+          <div class="avatar">${esc(initials(state.user.display_name))}</div>
+          <textarea name="body" rows="1" placeholder="What's on your heart, ${esc((state.user.display_name || '').split(/\s+/)[0])}?" required></textarea>
+        </div>
+        <div class="composer-more">
+          <div class="kind-pills" role="radiogroup">${[['post', '✏️ Post'], ['prayer', '🙏 Prayer request'], ['testimony', '🙌 Testimony']].map(([v, l], i) =>
+            `<label><input type="radio" name="kind" value="${v}" ${i === 0 ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>
+          <button class="btn gold">Share</button>
+        </div>
+      </form>
+      <div class="seg">${[['', 'All'], ['prayer', '🙏 Prayer'], ['testimony', '🙌 Testimonies'], ['post', '✏️ Posts']].map(([k, l]) => `<a class="${(kind || '') === k ? 'active' : ''}" href="#/feed${k ? '/' + k : ''}">${l}</a>`).join('')}</div>
+      <div id="posts"></div>
+    </section></div>`;
+  const form = $('#composer');
+  const ta = $('textarea', form);
+  const open = () => form.classList.add('open');
+  ta.onfocus = open;
+  ta.oninput = () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 240) + 'px'; };
+  view.querySelectorAll('.quick button').forEach((b) => (b.onclick = () => {
+    $(`input[value="${b.dataset.kind}"]`, form).checked = true;
+    open(); form.scrollIntoView({ behavior: 'smooth', block: 'center' }); ta.focus({ preventScroll: true });
+  }));
+  $('#shareVerse').onclick = async () => {
+    const text = `“${verse}” (${ref}). Shared from The Gospel Banker`;
+    try {
+      if (navigator.share) await navigator.share({ text, url: location.origin });
+      else { await navigator.clipboard.writeText(text); toast('Verse copied. Paste it anywhere to share.'); }
+    } catch { /* cancelled */ }
+  };
+  form.onsubmit = async (e) => {
     e.preventDefault();
     const body = Object.fromEntries(new FormData(e.target));
     try {
       const r = await api('/posts', { method: 'POST', body });
       if (r.notice) toast(r.notice);
-      e.target.reset(); loadPosts(kind);
+      e.target.reset(); ta.style.height = ''; form.classList.remove('open'); loadPosts(kind);
     } catch (err) { toast(err.message, true); }
   };
+  loadHomeExtras();
   await loadPosts(kind);
+}
+
+function drawLauncher() {
+  const el = $('#launcher');
+  if (!el) return;
+  const unread = state.convs.reduce((n, c) => n + (c.unread || 0), 0);
+  const fixed = [['#/videos', '🎬', 'Videos'], ['#/videos/downloads', '⬇️', 'Downloads'], ['#/chats', '💬', 'Chats', unread]];
+  const secs = state.sections.map((s) => [`#/library/${s.key}`, s.icon, s.label, 0, s.count]);
+  el.innerHTML = [...fixed, ...secs].map(([href, icon, label, badge]) =>
+    `<a href="${href}"><span class="li">${icon}${badge ? `<span class="badge">${badge}</span>` : ''}</span><span class="ll">${esc(label)}</span></a>`).join('');
+}
+
+function drawChatPreview() {
+  const box = $('#homeChats');
+  if (!box) return;
+  const list = state.convs.slice(0, 3);
+  box.hidden = !list.length;
+  $('#chatPreview').innerHTML = list.map((c) => `<a class="chat-item" href="#/chats/${c.id}">${convAvatar(c)}
+    <div class="meta"><div class="row"><b style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.title)}</b><span class="muted small">${c.last_at ? when(c.last_at) : ''}</span></div>
+    <div class="row"><div class="last" style="flex:1">${esc(c.last_body || 'No messages yet')}</div>${c.unread ? `<span class="badge">${c.unread}</span>` : ''}</div></div></a>`).join('');
+}
+
+function previewCard(it) {
+  const m = it.meta || {};
+  const extra = m.location || m.deadline || m.type || '';
+  return `<a class="pcard" href="#/library/${it.section}">
+    <span class="pt">${esc(it.title)}</span>
+    ${it.summary ? `<span class="ps">${esc(it.summary)}</span>` : ''}
+    <span class="pm">${esc(it.source || '')}${extra ? `${it.source ? ' · ' : ''}${m.location ? '📍 ' : '📅 '}${esc(extra)}` : ''}</span></a>`;
+}
+
+async function loadHomeExtras() {
+  try {
+    if (!state.sections.length) state.sections = await api('/sections');
+    drawLauncher();
+  } catch { /* library unavailable */ }
+  drawChatPreview();
+  const [vids, items] = await Promise.all([api('/videos?limit=8').catch(() => []), api('/content').catch(() => [])]);
+  const box = $('#homeVideos');
+  if (box && vids.length) { $('#videoShelf').innerHTML = await videoShelfHtml(vids); box.hidden = false; }
+  const el = $('#previews');
+  if (!el) return;
+  el.innerHTML = PREVIEW_SECTIONS.map((key) => {
+    const sec = state.sections.find((s) => s.key === key);
+    const list = items.filter((it) => it.section === key).slice(0, SHELF_SIZE);
+    if (!sec || !list.length) return '';
+    return `<section class="home-sec"><div class="sec-head"><h2>${sec.icon} ${esc(sec.label)}</h2><a href="#/library/${key}">See all ›</a></div>
+      <div class="shelf">${list.map(previewCard).join('')}</div></section>`;
+  }).join('');
 }
 
 async function loadPosts(kind) {
@@ -185,7 +308,7 @@ async function loadPosts(kind) {
 function postHtml(p) {
   const mine = p.author_id === state.user.id;
   const staff = ['admin', 'moderator'].includes(state.user.role);
-  return `<article class="card" data-post="${p.id}" data-kind="${p.kind}" data-author="${p.author_id}">
+  return `<article class="card post k-${p.kind}" data-post="${p.id}" data-kind="${p.kind}" data-author="${p.author_id}">
     <div class="post-head"><a class="avatar ${state.online.has(p.author_id) ? 'online' : ''}" href="#/profile/${p.author_id}" style="text-decoration:none">${esc(initials(p.author_name))}</a>
       <div style="flex:1;min-width:0"><a class="name" href="#/profile/${p.author_id}" style="color:inherit;text-decoration:none">${esc(p.author_name)}</a>
         <div class="muted small">${esc(p.author_headline || '')}${p.author_headline ? ' · ' : ''}${when(p.created_at)}</div></div>
@@ -479,6 +602,7 @@ async function renderAdmin(view) {
 
 // ---------------- realtime ----------------
 function connectSocket() {
+  if (typeof io !== 'function') return; // offline: the chat server is out of reach
   socket = io({ auth: { token: state.token } });
   socket.on('presence', ({ online }) => { state.online = new Set(online); });
   socket.on('message:new', (m) => {
@@ -516,7 +640,13 @@ async function boot() {
   try {
     const me = await api('/me');
     state.user = me.user; state.aiModeration = me.aiModeration;
-  } catch { return renderAuth(); }
+    localStorage.setItem('gb_user', JSON.stringify(me.user));
+  } catch (err) {
+    // No internet: open the app with the saved account so downloads can be watched.
+    const saved = JSON.parse(localStorage.getItem('gb_user') || 'null');
+    if (!(err instanceof TypeError) || !state.token || !saved) return renderAuth();
+    state.user = saved;
+  }
   renderShell();
   connectSocket();
   loadConvs().catch(() => {});
