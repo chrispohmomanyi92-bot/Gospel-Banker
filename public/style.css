@@ -239,3 +239,50 @@ dialog::backdrop { background: rgba(10,15,30,.55); }
 .dl-thumb { flex: none; width: 150px; padding: 0; border: 0; background: none; cursor: pointer; }
 .dl-thumb .vthumb { display: block; border-radius: 8px; }
 @media (max-width: 420px) { .dl-thumb { width: 116px; } }
+
+/* channels, preachers, audio and files */
+.vnav { overflow-x: auto; scrollbar-width: none; }
+.vnav::-webkit-scrollbar { display: none; }
+.vnav a { flex: 1 0 auto; padding: 6px 10px; }
+.chip-sep { flex: none; width: 1px; background: var(--line); margin: 4px 2px; }
+.vkind { position: absolute; left: 6px; bottom: 6px; background: rgba(0,0,0,.75); color: #fff; font-size: .72rem; padding: 1px 6px; border-radius: 4px; font-weight: 600; }
+.vthumb.k-audio { background: linear-gradient(135deg, #3a2a63, #7a4fa0); }
+.vthumb.k-file { background: linear-gradient(135deg, #5a4210, var(--gold)); }
+.vthumb-ph { position: relative; }
+.vthumb-ph .ext, .file-view .ext { position: absolute; font-size: .8rem; font-weight: 800; color: #fff; letter-spacing: .5px; bottom: 18%; }
+.clamp1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.people { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.person { display: flex; gap: 12px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; text-decoration: none; color: inherit; box-shadow: var(--shadow); min-width: 0; }
+.person:hover { border-color: var(--gold); }
+.person .avatar { width: 48px; height: 48px; overflow: hidden; }
+.avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+.speaker-link { display: inline-block; margin: -2px 0 10px; font-weight: 600; text-decoration: none; }
+.audio-player { aspect-ratio: auto; display: flex; gap: 16px; align-items: center; padding: 16px; color: #fff; background: linear-gradient(135deg, #3a2a63, #7a4fa0); }
+.audio-player img, .audio-player .art { width: 120px; height: 120px; border-radius: 12px; object-fit: cover; flex: none; }
+.audio-player .art { display: grid; place-items: center; font-size: 3rem; background: rgba(255,255,255,.12); }
+.audio-player .ap-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.audio-player audio { width: 100%; }
+@media (max-width: 600px) { .watch .audio-player { margin: -16px -16px 0; border-radius: 0; } .audio-player img, .audio-player .art { width: 84px; height: 84px; } }
+.file-view { display: flex; gap: 16px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; box-shadow: var(--shadow); }
+.file-view img, .file-view .art { width: 96px; height: 120px; border-radius: 8px; object-fit: cover; flex: none; }
+.file-view .art { position: relative; display: grid; place-items: center; font-size: 2.6rem; background: linear-gradient(135deg, #5a4210, var(--gold)); }
+.btn.on-dark { color: #fff; border-color: rgba(255,255,255,.35); }
+a.on-dark { color: #fff; }
+
+/* stores */
+.sgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.scard { display: flex; gap: 12px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; text-decoration: none; color: var(--ink); box-shadow: var(--shadow); min-width: 0; }
+.scard:hover { border-color: var(--gold); }
+.shelf .scard { width: 280px; }
+.slogo { width: 64px; height: 64px; border-radius: 14px; background: var(--gold-soft); display: grid; place-items: center; font-size: 1.9rem; overflow: hidden; flex: none; }
+.slogo img { width: 100%; height: 100%; object-fit: cover; }
+.slogo.big { width: 84px; height: 84px; font-size: 2.4rem; }
+.store-banner .slogo { background: rgba(255,255,255,.14); }
+.pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+.product { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+.pimg { aspect-ratio: 1; background: var(--gold-soft); display: grid; place-items: center; font-size: 2.6rem; }
+.pimg img { width: 100%; height: 100%; object-fit: cover; }
+.pbody { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.price { color: var(--gold); font-weight: 700; }
+@media (max-width: 420px) { .pgrid { grid-template-columns: repeat(2, 1fr); gap: 10px; } .tabs a { font-size: .68rem; padding-left: 2px; padding-right: 2px; } }

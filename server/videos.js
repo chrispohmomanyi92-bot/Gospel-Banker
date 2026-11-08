@@ -1,4 +1,5 @@
-// In-app video platform: uploads, categories, channels, views, likes, comments.
+// In-app media platform: videos, audio and files uploaded to members' channels,
+// browsed by topic, preacher/author or channel, with views, likes and comments.
 import express from 'express';
 import multer from 'multer';
 import { randomBytes } from 'node:crypto';
@@ -66,43 +67,95 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 );
 `);
 
+// Columns added after the first release. Existing databases get them on start-up.
+export function addColumn(table, column, definition) {
+  const has = db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === column);
+  if (!has) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+addColumn('videos', 'kind', "TEXT NOT NULL DEFAULT 'video'");   // video | audio | file
+addColumn('videos', 'speaker', "TEXT NOT NULL DEFAULT ''");     // preacher, author or artist
+addColumn('videos', 'original_name', "TEXT NOT NULL DEFAULT ''");
+addColumn('users', 'channel_name', "TEXT NOT NULL DEFAULT ''");
+addColumn('users', 'channel_about', "TEXT NOT NULL DEFAULT ''");
+db.exec(`CREATE INDEX IF NOT EXISTS idx_videos_speaker ON videos(status, speaker COLLATE NOCASE);
+  CREATE INDEX IF NOT EXISTS idx_videos_uploader ON videos(uploader_id, status);`);
+
 const MEDIA_DIR = resolve(process.env.MEDIA_DIR || './data/media');
 const VIDEO_DIR = join(MEDIA_DIR, 'videos');
 const THUMB_DIR = join(MEDIA_DIR, 'thumbs');
-mkdirSync(VIDEO_DIR, { recursive: true });
-mkdirSync(THUMB_DIR, { recursive: true });
+const AUDIO_DIR = join(MEDIA_DIR, 'audio');
+const FILE_DIR = join(MEDIA_DIR, 'files');
+for (const d of [VIDEO_DIR, THUMB_DIR, AUDIO_DIR, FILE_DIR]) mkdirSync(d, { recursive: true });
 const MAX_MB = Number(process.env.MAX_VIDEO_MB || 500);
+const DIRS = { video: VIDEO_DIR, audio: AUDIO_DIR, file: FILE_DIR };
+const URL_DIR = { video: 'videos', audio: 'audio', file: 'files' };
 
-const VIDEO_TYPES = { 'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov', 'video/x-m4v': '.m4v', 'video/3gpp': '.3gp' };
+// Allowed uploads by kind: mime type -> extension. Extensions are the fallback
+// because some phones and Windows browsers send an empty or generic type.
+const TYPES = {
+  video: { 'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov', 'video/x-m4v': '.m4v', 'video/3gpp': '.3gp' },
+  audio: {
+    'audio/mpeg': '.mp3', 'audio/mp3': '.mp3', 'audio/mp4': '.m4a', 'audio/x-m4a': '.m4a', 'audio/aac': '.aac', 'audio/ogg': '.ogg',
+    'audio/wav': '.wav', 'audio/x-wav': '.wav', 'audio/wave': '.wav', 'audio/webm': '.weba', 'audio/flac': '.flac', 'audio/amr': '.amr', 'audio/3gpp': '.3ga',
+  },
+  file: {
+    'application/pdf': '.pdf', 'application/epub+zip': '.epub', 'text/plain': '.txt', 'application/rtf': '.rtf',
+    'application/msword': '.doc', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+    'application/vnd.ms-powerpoint': '.ppt', 'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+    'application/vnd.ms-excel': '.xls', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+    'application/vnd.oasis.opendocument.text': '.odt', 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp',
+  },
+};
 const IMAGE_TYPES = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' };
+const EXT_KIND = Object.fromEntries(Object.entries(TYPES).flatMap(([kind, m]) => Object.values(m).map((ext) => [ext, kind])));
+Object.assign(EXT_KIND, { '.jpeg': 'file', '.mpeg': 'audio', '.opus': 'audio' });
+
+// Which kind of upload a file is, with the extension to store it under, or null if not allowed.
+export function classifyUpload(mimetype, originalname) {
+  const ext = extname(originalname || '').toLowerCase();
+  for (const [kind, m] of Object.entries(TYPES)) if (m[mimetype]) return { kind, ext: m[mimetype] };
+  if (EXT_KIND[ext]) return { kind: EXT_KIND[ext], ext };
+  return null;
+}
 
 const upload = multer({
   storage: multer.diskStorage({
-    destination: (req, file, cb) => cb(null, file.fieldname === 'thumb' ? THUMB_DIR : VIDEO_DIR),
+    destination: (req, file, cb) => cb(null, file.fieldname === 'thumb' ? THUMB_DIR : DIRS[classifyUpload(file.mimetype, file.originalname).kind]),
     filename: (req, file, cb) => {
-      const ext = (file.fieldname === 'thumb' ? IMAGE_TYPES : VIDEO_TYPES)[file.mimetype] || extname(file.originalname).toLowerCase();
+      const ext = file.fieldname === 'thumb' ? IMAGE_TYPES[file.mimetype] : classifyUpload(file.mimetype, file.originalname).ext;
       cb(null, randomBytes(16).toString('hex') + ext);
     },
   }),
   limits: { fileSize: MAX_MB * 1024 * 1024, files: 2 },
+  defParamCharset: 'utf8', // keep accented file names such as "Wimbo – Kwaya.mp3"
   fileFilter: (req, file, cb) => {
-    const ok = file.fieldname === 'thumb' ? IMAGE_TYPES[file.mimetype] : file.fieldname === 'video' && VIDEO_TYPES[file.mimetype];
-    cb(ok ? null : new Error(file.fieldname === 'thumb' ? 'Thumbnail must be JPG, PNG or WebP.' : 'Please upload an MP4, WebM or MOV video.'), Boolean(ok));
+    const ok = file.fieldname === 'thumb' ? IMAGE_TYPES[file.mimetype] : ['media', 'video'].includes(file.fieldname) && classifyUpload(file.mimetype, file.originalname);
+    cb(ok ? null : new Error(file.fieldname === 'thumb' ? 'The cover picture must be JPG, PNG or WebP.' : 'That kind of file is not supported. Upload a video (MP4, MOV), audio (MP3, M4A, WAV) or a document (PDF, Word, PowerPoint, EPUB).'), Boolean(ok));
   },
-}).fields([{ name: 'video', maxCount: 1 }, { name: 'thumb', maxCount: 1 }]);
+}).fields([{ name: 'media', maxCount: 1 }, { name: 'video', maxCount: 1 }, { name: 'thumb', maxCount: 1 }]);
 
 const removeFiles = (...paths) => paths.filter(Boolean).forEach((p) => { try { unlinkSync(p); } catch {} });
 
 export function registerVideoRoutes(app, { auth, staffOnly, screen, isStaff, publicUser, userById }) {
   const q = (sql) => db.prepare(sql);
-  app.use('/media', express.static(MEDIA_DIR, { maxAge: '7d', fallthrough: false }));
+  app.use('/media', express.static(MEDIA_DIR, {
+    maxAge: '7d', fallthrough: false,
+    setHeaders: (res, path) => {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      // Documents download instead of opening inside the app's own address (PDFs and pictures may open).
+      if (path.startsWith(FILE_DIR) && !/\.(pdf|jpe?g|png|webp)$/i.test(path)) res.setHeader('Content-Disposition', 'attachment');
+    },
+  }));
 
-  const SELECT = `SELECT v.*, u.display_name AS channel_name, u.username AS channel_username,
-      (SELECT COUNT(*) FROM video_likes l WHERE l.video_id = v.id) AS likes
+  const CHANNEL_NAME = `COALESCE(NULLIF(u.channel_name, ''), u.display_name)`;
+  const SELECT = `SELECT v.*, ${CHANNEL_NAME} AS channel_name, u.username AS channel_username,
+      (SELECT COUNT(*) FROM video_likes l WHERE l.video_id = v.id) AS likes,
+      (SELECT COUNT(*) FROM video_comments c WHERE c.video_id = v.id) AS comment_count
     FROM videos v JOIN users u ON u.id = v.uploader_id`;
   const shape = (v) => v && ({
     ...v,
-    src: `/media/videos/${v.file}`,
+    kind: v.kind || 'video',
+    src: `/media/${URL_DIR[v.kind] || 'videos'}/${v.file}`,
     thumb_url: v.thumb ? `/media/thumbs/${v.thumb}` : null,
     category_label: VIDEO_CATEGORIES.find((c) => c.key === v.category)?.label || v.category,
   });
@@ -114,7 +167,7 @@ export function registerVideoRoutes(app, { auth, staffOnly, screen, isStaff, pub
   });
 
   app.get('/api/videos', auth, (req, res) => {
-    const { category, q: term, sort, channel, exclude } = req.query;
+    const { category, q: term, sort, channel, exclude, kind, speaker } = req.query;
     const where = [];
     const args = [];
     if (channel) {
@@ -122,11 +175,24 @@ export function registerVideoRoutes(app, { auth, staffOnly, screen, isStaff, pub
       if (Number(channel) !== req.user.id && !isStaff(req.user)) where.push(`v.status = 'approved'`);
     } else where.push(`v.status = 'approved'`);
     if (category && CAT_KEYS.has(category)) { where.push('v.category = ?'); args.push(category); }
-    if (term) { where.push('(v.title LIKE ? OR v.description LIKE ? OR u.display_name LIKE ?)'); args.push(...Array(3).fill(`%${term}%`)); }
+    if (kind && DIRS[kind]) { where.push('v.kind = ?'); args.push(kind); }
+    if (speaker) { where.push('v.speaker = ? COLLATE NOCASE'); args.push(String(speaker).trim()); }
+    if (term) { where.push(`(v.title LIKE ? OR v.description LIKE ? OR v.speaker LIKE ? OR ${CHANNEL_NAME} LIKE ?)`); args.push(...Array(4).fill(`%${term}%`)); }
     if (exclude) { where.push('v.id != ?'); args.push(Number(exclude)); }
     const order = sort === 'popular' ? 'v.views DESC, v.id DESC' : 'v.id DESC';
     const limit = Math.min(Number(req.query.limit) || 60, 100);
     res.json(q(`${SELECT} WHERE ${where.join(' AND ')} ORDER BY ${order} LIMIT ${limit}`).all(...args).map(shape));
+  });
+
+  // Preachers, authors and artists, with how many approved uploads each has.
+  app.get('/api/videos/speakers', auth, (req, res) => {
+    const term = String(req.query.q || '').trim();
+    res.json(q(`SELECT MIN(speaker) AS name, COUNT(*) AS count,
+        SUM(kind = 'video') AS videos, SUM(kind = 'audio') AS audio, SUM(kind = 'file') AS files,
+        (SELECT thumb FROM videos t WHERE t.status = 'approved' AND t.speaker = v.speaker COLLATE NOCASE AND t.thumb IS NOT NULL ORDER BY t.id DESC LIMIT 1) AS thumb
+      FROM videos v WHERE status = 'approved' AND speaker != '' ${term ? 'AND speaker LIKE ?' : ''}
+      GROUP BY speaker COLLATE NOCASE ORDER BY count DESC, name LIMIT 200`).all(...(term ? [`%${term}%`] : []))
+      .map((s) => ({ ...s, thumb_url: s.thumb ? `/media/thumbs/${s.thumb}` : null })));
   });
 
   app.get('/api/videos/:id', auth, (req, res) => {
@@ -140,25 +206,30 @@ export function registerVideoRoutes(app, { auth, staffOnly, screen, isStaff, pub
 
   app.post('/api/videos', auth, (req, res) => {
     upload(req, res, async (err) => {
-      const vfile = req.files?.video?.[0];
+      const vfile = req.files?.media?.[0] || req.files?.video?.[0];
       const tfile = req.files?.thumb?.[0];
       const fail = (status, error) => { removeFiles(vfile?.path, tfile?.path); res.status(status).json({ error }); };
-      if (err) return fail(400, err.code === 'LIMIT_FILE_SIZE' ? `Videos can be up to ${MAX_MB} MB.` : err.message);
-      if (!vfile) return fail(400, 'Please choose a video.');
+      if (err) return fail(400, err.code === 'LIMIT_FILE_SIZE' ? `Uploads can be up to ${MAX_MB} MB.` : err.message);
+      if (!vfile) return fail(400, 'Please choose a video, audio or file.');
+      const { kind } = classifyUpload(vfile.mimetype, vfile.originalname);
       const title = String(req.body.title || '').trim().slice(0, 120);
       const description = String(req.body.description || '').trim().slice(0, 5000);
+      const speaker = String(req.body.speaker || '').trim().replace(/\s+/g, ' ').slice(0, 80);
       const category = req.body.category;
       if (!title) return fail(400, 'Please add a title.');
-      if (!CAT_KEYS.has(category)) return fail(400, 'Please pick a category.');
+      if (!CAT_KEYS.has(category)) return fail(400, 'Please pick a topic.');
       try {
-        const v = await screen(req.user, `${title}\n${description}`, 'video');
+        const v = await screen(req.user, `${title}\n${speaker}\n${description}`, 'video');
         if (!v.allowed) return fail(422, v.reason);
         if (v.flagged) return fail(422, 'Please keep titles and descriptions respectful.');
         const status = isStaff(req.user) ? 'approved' : 'pending';
-        const row = q(`INSERT INTO videos (uploader_id, title, description, category, file, thumb, mime, size, duration, status)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`)
-          .get(req.user.id, title, description, category, vfile.filename, tfile?.filename || null, vfile.mimetype, vfile.size, Number(req.body.duration) || 0, status);
-        res.json({ video: shape(row), message: status === 'pending' ? 'Uploaded! A moderator will review your video before it goes public.' : 'Published.' });
+        const mime = TYPES[kind][vfile.mimetype] ? vfile.mimetype : null;
+        const row = q(`INSERT INTO videos (uploader_id, title, description, category, file, thumb, mime, size, duration, status, kind, speaker, original_name)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`)
+          .get(req.user.id, title, description, category, vfile.filename, tfile?.filename || null, mime, vfile.size,
+            kind === 'file' ? 0 : Number(req.body.duration) || 0, status, kind, speaker, vfile.originalname.slice(0, 200));
+        const what = { video: 'video', audio: 'audio', file: 'file' }[kind];
+        res.json({ video: shape(row), message: status === 'pending' ? `Uploaded! A moderator will review your ${what} before it goes public.` : 'Published.' });
       } catch (e) {
         console.error(e); fail(500, 'Upload failed.');
       }
@@ -170,7 +241,7 @@ export function registerVideoRoutes(app, { auth, staffOnly, screen, isStaff, pub
     if (!v) return res.status(404).json({ error: 'Not found' });
     if (v.uploader_id !== req.user.id && !isStaff(req.user)) return res.status(403).json({ error: 'Not allowed.' });
     q('DELETE FROM videos WHERE id = ?').run(v.id);
-    removeFiles(join(VIDEO_DIR, v.file), v.thumb && join(THUMB_DIR, v.thumb));
+    removeFiles(join(DIRS[v.kind] || VIDEO_DIR, v.file), v.thumb && join(THUMB_DIR, v.thumb));
     res.json({ ok: true });
   });
 
@@ -205,13 +276,36 @@ export function registerVideoRoutes(app, { auth, staffOnly, screen, isStaff, pub
     res.json({ comment: { ...c, author_name: req.user.display_name }, notice: v.flagged ? v.reason : null });
   });
 
-  // Channels: every member has one.
+  // Channels: every member has one. They show up in the list once they have
+  // something public or have named their channel.
+  app.get('/api/channels', auth, (req, res) => {
+    const term = String(req.query.q || '').trim();
+    const rows = q(`SELECT u.id, u.username, u.display_name, u.headline, u.church, u.channel_about, ${CHANNEL_NAME} AS channel_name,
+        (SELECT COUNT(*) FROM videos v WHERE v.uploader_id = u.id AND v.status = 'approved') AS uploads,
+        (SELECT COUNT(*) FROM subscriptions s WHERE s.channel_id = u.id) AS subscribers,
+        (SELECT thumb FROM videos v WHERE v.uploader_id = u.id AND v.status = 'approved' AND v.thumb IS NOT NULL ORDER BY v.id DESC LIMIT 1) AS thumb
+      FROM users u WHERE (u.channel_name != '' OR EXISTS (SELECT 1 FROM videos v WHERE v.uploader_id = u.id AND v.status = 'approved'))
+      ${term ? `AND (${CHANNEL_NAME} LIKE ? OR u.display_name LIKE ? OR u.channel_about LIKE ? OR u.church LIKE ?)` : ''}
+      ORDER BY subscribers DESC, uploads DESC, channel_name LIMIT 200`).all(...(term ? Array(4).fill(`%${term}%`) : []));
+    res.json(rows.map((r) => ({ ...r, thumb_url: r.thumb ? `/media/thumbs/${r.thumb}` : null })));
+  });
+
+  // Name and describe your own channel.
+  app.patch('/api/channels/me', auth, async (req, res) => {
+    const name = String(req.body?.channel_name ?? '').trim().replace(/\s+/g, ' ').slice(0, 60);
+    const about = String(req.body?.channel_about ?? '').trim().slice(0, 1000);
+    const v = await screen(req.user, `${name}\n${about}`, 'channel');
+    if (!v.allowed || v.flagged) return res.status(422).json({ error: v.reason || 'Please keep your channel respectful.' });
+    q('UPDATE users SET channel_name = ?, channel_about = ? WHERE id = ?').run(name, about, req.user.id);
+    res.json({ channel_name: name || req.user.display_name, channel_about: about });
+  });
+
   app.get('/api/channels/:id', auth, (req, res) => {
     const u = userById(req.params.id);
     if (!u) return res.status(404).json({ error: 'Channel not found.' });
     const subscribers = q('SELECT COUNT(*) AS n FROM subscriptions WHERE channel_id = ?').get(u.id).n;
     const subscribed = Boolean(q('SELECT 1 FROM subscriptions WHERE channel_id = ? AND subscriber_id = ?').get(u.id, req.user.id));
-    res.json({ ...publicUser(u), subscribers, subscribed });
+    res.json({ ...publicUser(u), channel_name: u.channel_name || u.display_name, channel_about: u.channel_about || '', has_custom_name: Boolean(u.channel_name), subscribers, subscribed });
   });
 
   app.post('/api/channels/:id/subscribe', auth, (req, res) => {

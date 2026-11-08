@@ -35,6 +35,21 @@ A community app for the Seventh-day Adventist family: WhatsApp-style chat, a Fac
 - Members' uploads wait for moderator approval before they go public; admins and moderators publish directly
 - Videos are stored in `data/media` (set `MEDIA_DIR` to change it). The default size limit is 500 MB per video (`MAX_VIDEO_MB`).
 
+**Channels: videos, audio and files**
+- Members upload videos, audio (MP3, M4A, WAV…) and files (PDF, Word, PowerPoint, EPUB, pictures) to their own channel
+- Each upload can name a preacher, author or artist; the upload form suggests names already used so they stay consistent
+- Browse by topic, by preacher/author (Videos › Preachers & authors), or by channel (Videos › Channels), and filter by Videos / Audio / Files
+- Members can give their channel its own name and description (e.g. "Grace Health Corner"), separate from their personal name
+- Audio plays in the app and can be downloaded for offline listening; files open (PDF, pictures) or download
+- Viewers subscribe, say "Amen" (like) and comment on every public upload
+
+**Member stores**
+- Any member can open a store (up to 3), with a logo, description, location and how to buy (phone, WhatsApp, M-Pesa till)
+- Stores are grouped into 12 categories: Books & Bibles, Health Foods, Bakery & Vegetarian Meals, Farm Produce, Natural Remedies, Modest Clothing, Music & Media, Crafts & Gifts, Pathfinder & Children, Education & Tutoring, Services, Other
+- Owners list products with a photo, price and description; shoppers tap "Ask / order" to message the seller
+- Every store has its own group chat to promote products. Shoppers join it from the store page, and new products can be announced there automatically
+- New stores wait for moderator approval (the Moderate tab), like uploads do. Store pictures are stored in `data/media/stores`
+
 **Library (16 sections)**
 - Music Videos, Music, Sermons, Health Talks, Podcasts
 - SDA Jobs, News, EGW Writings (with a search box), Articles, Bible Study Guides
