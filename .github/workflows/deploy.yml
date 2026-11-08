@@ -1,0 +1,41 @@
+# Installs every new version on the Oracle server as soon as it reaches main.
+# Needs one repository secret: SERVER_SSH_KEY (the server's private key, the
+# whole text of the .key file). Without it this workflow does nothing.
+name: Deploy to server
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SSH_KEY: ${{ secrets.SERVER_SSH_KEY }}
+      SERVER: ${{ vars.SERVER_HOST || '84.12.94.26' }}
+    steps:
+      - name: Skip when the server key is not set up
+        if: env.SSH_KEY == ''
+        run: echo "::notice::Add the SERVER_SSH_KEY secret to deploy automatically."
+      - name: Update the server
+        if: env.SSH_KEY != ''
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_server
+          chmod 600 ~/.ssh/id_server
+          ssh -i ~/.ssh/id_server -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 "ubuntu@$SERVER" \
+            'sudo bash /opt/gospel-banker/deploy/update.sh && sudo bash /opt/gospel-banker/deploy/enable-auto-update.sh'
+      - name: Check the app answers
+        if: env.SSH_KEY != ''
+        run: |
+          for i in $(seq 1 20); do
+            curl -fsS "https://${SERVER//./-}.sslip.io/api/health" && exit 0
+            sleep 3
+          done
+          echo "The app did not answer after the update." && exit 1
