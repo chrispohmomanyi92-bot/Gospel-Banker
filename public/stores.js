@@ -1,6 +1,7 @@
 // Member stores: browse by what they sell, open your own store, list products,
 // and run a store group where shoppers hear about new products.
 import { api, esc, toast, linkify, state } from './app.js';
+import { countryOptions, countryLabel, countryName, flag } from './countries.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 let categories = [];
@@ -17,11 +18,14 @@ async function sendForm(path, method, fd) {
 
 const logoHtml = (s, big = false) => `<div class="slogo ${big ? 'big' : ''}">${s.logo_url ? `<img src="${esc(s.logo_url)}" alt="">` : s.category_icon || '🛍️'}</div>`;
 
+// "🇰🇪 Nairobi" or "🇰🇪 Kenya" or "📍 Nairobi".
+const placeText = (s) => (s.country ? flag(s.country) + ' ' + esc(s.location || countryName(s.country)) : s.location ? '📍 ' + esc(s.location) : '');
+
 export function storeCardHtml(s) {
   return `<a class="scard" href="#/stores/${s.id}">${logoHtml(s)}
     <div style="min-width:0;flex:1"><div class="vtitle">${esc(s.name)}</div>
       <div class="muted small">${s.category_icon} ${esc(s.category_label)}</div>
-      <div class="muted small clamp1">${s.location ? '📍 ' + esc(s.location) + ' · ' : ''}${plural(s.product_count, 'product')}</div>
+      <div class="muted small clamp1">${placeText(s)}${placeText(s) ? ' · ' : ''}${plural(s.product_count, 'product')}</div>
       ${s.status !== 'approved' ? `<span class="tag" style="margin-top:4px">${s.status === 'pending' ? 'Awaiting review' : 'Not approved'}</span>` : ''}</div></a>`;
 }
 
@@ -34,28 +38,44 @@ export async function renderStores(view, [sub, arg] = []) {
 }
 
 async function renderBrowse(view, cat) {
-  const term = new URLSearchParams(location.hash.split('?')[1] || '').get('q') || '';
+  const params = new URLSearchParams(location.hash.split('?')[1] || '');
+  const term = params.get('q') || '';
+  const country = params.get('country') || '';
+  const withCountry = (path) => path + (country ? (path.includes('?') ? '&' : '?') + 'country=' + country : '');
+  const countries = await api('/stores/countries').catch(() => []);
+  if (country && !countries.some((c) => c.code === country)) countries.unshift({ code: country, count: 0 });
   view.innerHTML = `<div class="page wide">
     <h2 style="margin:0 0 4px">🛍️ Member stores</h2>
     <p class="muted small" style="margin-top:0">Buy from Adventist brothers and sisters: books, health foods, crafts, farm produce and services.</p>
     <div class="row" style="margin-bottom:12px"><a class="btn small gold" href="#/stores/new" style="text-decoration:none">+ Open your store</a>
       <a class="btn small ghost" href="#/stores/mine" style="text-decoration:none">My stores</a></div>
-    <form class="row" id="sSearch" style="margin-bottom:12px"><input type="search" name="q" value="${esc(term)}" placeholder="Search stores and products"><button class="btn">Search</button></form>
-    <div class="chips"><a class="chip ${!cat && !term ? 'active' : ''}" href="#/stores">All</a>
-      ${categories.map((c) => `<a class="chip ${cat === c.key ? 'active' : ''}" href="#/stores/c/${c.key}">${c.icon} ${esc(c.label)}${c.count ? ` <span class="muted">${c.count}</span>` : ''}</a>`).join('')}</div>
+    <form class="row" id="sSearch" style="margin-bottom:10px"><input type="search" name="q" value="${esc(term)}" placeholder="Search stores and products"><button class="btn">Search</button></form>
+    <label class="country-filter"><span>Country</span><select id="sCountry"><option value="">🌍 All countries</option>
+      ${countries.map((c) => `<option value="${c.code}" ${c.code === country ? 'selected' : ''}>${countryLabel(c.code)}${c.count ? ` (${c.count})` : ''}</option>`).join('')}</select></label>
+    <div class="chips"><a class="chip ${!cat && !term ? 'active' : ''}" href="${withCountry('#/stores')}">All</a>
+      ${categories.map((c) => `<a class="chip ${cat === c.key ? 'active' : ''}" href="${withCountry('#/stores/c/' + c.key)}">${c.icon} ${esc(c.label)}${c.count && !country ? ` <span class="muted">${c.count}</span>` : ''}</a>`).join('')}</div>
     <div id="sBody"><div class="empty">Loading…</div></div></div>`;
   $('#sSearch').onsubmit = (e) => {
     e.preventDefault();
     const t = new FormData(e.target).get('q').trim();
-    location.hash = t ? '#/stores/search?q=' + encodeURIComponent(t) : '#/stores';
+    location.hash = withCountry(t ? '#/stores/search?q=' + encodeURIComponent(t) : '#/stores');
   };
-  const qs = term ? '?q=' + encodeURIComponent(term) : cat ? '?category=' + cat : '';
-  const list = await api('/stores' + qs);
+  $('#sCountry').onchange = (e) => {
+    const p = new URLSearchParams(params);
+    e.target.value ? p.set('country', e.target.value) : p.delete('country');
+    const qs = p.toString();
+    location.hash = location.hash.split('?')[0] + (qs ? '?' + qs : '');
+  };
+  const qs = new URLSearchParams();
+  if (term) qs.set('q', term); else if (cat) qs.set('category', cat);
+  if (country) qs.set('country', country);
+  const list = await api('/stores?' + qs);
   const c = categories.find((x) => x.key === cat);
-  const head = term ? `<h3>Results for "${esc(term)}"</h3>` : c ? `<h3>${c.icon} ${esc(c.label)}</h3>` : '';
+  const where = country ? ` in ${countryLabel(country)}` : '';
+  const head = term ? `<h3>Results for "${esc(term)}"${where}</h3>` : c ? `<h3>${c.icon} ${esc(c.label)}${where}</h3>` : country ? `<h3>Stores${where}</h3>` : '';
   if (list.length) { $('#sBody').innerHTML = head + `<div class="sgrid">${list.map(storeCardHtml).join('')}</div>`; return; }
-  $('#sBody').innerHTML = head + `<div class="empty">${term ? 'No stores or products match.' : 'No stores here yet.'}<br><br><a class="btn gold" href="#/stores/new" style="text-decoration:none">+ Open the first one</a></div>`;
-  if (!term && !cat) {
+  $('#sBody').innerHTML = head + `<div class="empty">${term ? 'No stores or products match.' : country ? 'No stores in this country yet.' : 'No stores here yet.'}<br><br><a class="btn gold" href="#/stores/new" style="text-decoration:none">+ Open the first one</a></div>`;
+  if (!term && !cat && !country) {
     // Empty market: show what kinds of stores members can open.
     $('#sBody').innerHTML = `<div class="empty" style="padding-bottom:16px">No member stores yet. Be the first to open one!</div>
       <div class="grid">${categories.map((x) => `<a class="tile" href="#/stores/new?category=${x.key}"><span class="ico">${x.icon}</span><span class="label">${esc(x.label)}</span><span class="muted small">Open a store</span></a>`).join('')}</div>`;
@@ -83,7 +103,9 @@ function renderStoreForm(view, s) {
       <label class="field"><span>What do you sell?</span><select name="category" required><option value="">Choose a category…</option>
         ${categories.map((c) => `<option value="${c.key}" ${(s?.category || preset) === c.key ? 'selected' : ''}>${c.icon} ${esc(c.label)}</option>`).join('')}</select></label>
       <label class="field"><span>About your store</span><textarea name="description" maxlength="3000" placeholder="What you sell, delivery, opening days (closed on Sabbath)…">${esc(s?.description || '')}</textarea></label>
-      <div class="row wrap"><label class="field" style="flex:1;min-width:200px"><span>Location</span><input type="text" name="location" maxlength="120" value="${esc(s?.location || '')}" placeholder="Town or church"></label>
+      <div class="row wrap"><label class="field" style="flex:1;min-width:200px"><span>Country</span><select name="country" required><option value="">Choose a country…</option>${countryOptions(s?.country || '')}</select></label>
+        <label class="field" style="flex:1;min-width:200px"><span>Town or area</span><input type="text" name="location" maxlength="120" value="${esc(s?.location || '')}" placeholder="e.g. Nairobi, Kisii town"></label></div>
+      <div class="row wrap">
         <label class="field" style="flex:1;min-width:200px"><span>How to buy (phone, WhatsApp, M-Pesa till)</span><input type="text" name="contact" maxlength="160" value="${esc(s?.contact || '')}"></label></div>
       <button class="btn gold" style="width:100%">${editing ? 'Save changes' : 'Open my store'}</button></form></div>`;
   const form = $('#storeForm');
@@ -112,7 +134,7 @@ async function renderStore(view, id) {
   view.innerHTML = `<div class="page wide"><a href="#/stores" class="muted small" style="text-decoration:none">← Stores</a>
     <div class="channel-banner store-banner" style="margin-top:6px">${logoHtml(s, true)}
       <div style="flex:1;min-width:0"><h2 style="margin:0">${esc(s.name)}</h2>
-        <div class="small" style="opacity:.9"><a class="on-dark" href="#/stores/c/${s.category}">${s.category_icon} ${esc(s.category_label)}</a>${s.location ? ' · 📍 ' + esc(s.location) : ''}</div>
+        <div class="small" style="opacity:.9"><a class="on-dark" href="#/stores/c/${s.category}">${s.category_icon} ${esc(s.category_label)}</a>${s.country ? ' · ' + countryLabel(s.country) : ''}${s.location ? ' · 📍 ' + esc(s.location) : ''}</div>
         <div class="small" style="opacity:.85">by <a class="on-dark" href="#/videos/channel/${s.owner_id}">${esc(s.owner_name)}</a> · ${plural(s.group_members, 'member')} in the store group</div></div>
       <div class="row wrap">
         <button class="btn gold" id="groupBtn">${s.in_group ? '💬 Open store group' : '👥 Join store group'}</button>
@@ -208,7 +230,7 @@ export async function pendingStoresHtml() {
   const list = await api('/admin/stores/pending').catch(() => []);
   return `<h3 style="margin-top:24px">Stores waiting for review (${list.length})</h3>` + (list.length
     ? list.map((s) => `<div class="card" data-sid="${s.id}"><div class="row" style="align-items:flex-start;gap:12px">${logoHtml(s)}
-        <div style="flex:1;min-width:0"><a class="item-title" href="#/stores/${s.id}">${esc(s.name)}</a><div class="muted small">${s.category_icon} ${esc(s.category_label)} · by ${esc(s.owner_name)}${s.location ? ' · ' + esc(s.location) : ''} · ${plural(s.product_count, 'product')}</div>
+        <div style="flex:1;min-width:0"><a class="item-title" href="#/stores/${s.id}">${esc(s.name)}</a><div class="muted small">${s.category_icon} ${esc(s.category_label)} · by ${esc(s.owner_name)}${s.country ? ' · ' + countryLabel(s.country) : ''}${s.location ? ' · ' + esc(s.location) : ''} · ${plural(s.product_count, 'product')}</div>
         ${s.description ? `<div class="small" style="margin-top:4px">${esc(s.description)}</div>` : ''}</div></div>
         <div class="row" style="margin-top:8px"><span class="spacer"></span><button class="btn small danger" data-ss="rejected">Reject</button><button class="btn small" data-ss="approved">Approve</button></div></div>`).join('')
     : '<div class="empty">No stores waiting.</div>');

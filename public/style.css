@@ -339,3 +339,5 @@ a.on-dark { color: #fff; }
 .give-pay.paypal .pp i { color: #009cde; }
 .give-pay.card { background: var(--btn); color: #fff; }
 .give-pay:hover { filter: brightness(1.05); }
+.country-filter { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; max-width: 360px; }
+.country-filter span { font-size: .85rem; color: var(--muted); flex: none; }

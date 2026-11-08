@@ -3,6 +3,7 @@
 import { api, esc, initials, toast, linkify, state } from './app.js';
 import { offlineSupported, listDownloads, isDownloaded, downloading, downloadVideo, removeDownload, offlineUrl, fmtSize } from './offline.js';
 import { storeCardHtml } from './stores.js';
+import { countryOptions, countryLabel, flag } from './countries.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 let categories = [];
@@ -229,18 +230,32 @@ async function renderPreacher(view, name) {
 async function renderChannels(view) {
   view.innerHTML = `<div class="page wide">${browseHead('channels')}
     <div class="row" style="margin-bottom:8px"><h2 style="flex:1;margin:0">Channels</h2><a class="btn small ghost" href="#/videos/channel/${state.user.id}" style="text-decoration:none">📺 My channel</a></div>
-    <form class="row" id="chSearch" style="margin-bottom:12px"><input type="search" name="q" placeholder="Find a channel, church or ministry"><button class="btn small">Find</button></form>
+    <form class="row" id="chSearch" style="margin-bottom:10px"><input type="search" name="q" placeholder="Find a channel, church or ministry"><button class="btn small">Find</button></form>
+    <label class="country-filter"><span>Country</span><select id="chCountry"><option value="">🌍 All countries</option></select></label>
     <div id="chList"><div class="empty">Loading…</div></div></div>`;
   wireSearch();
-  const draw = async (term = '') => {
-    const list = await api('/channels' + (term ? '?q=' + encodeURIComponent(term) : ''));
+  let term = '';
+  let country = hashParams().get('country') || '';
+  const countries = await api('/channels/countries').catch(() => []);
+  if (country && !countries.some((c) => c.code === country)) countries.unshift({ code: country, count: 0 });
+  $('#chCountry').insertAdjacentHTML('beforeend', countries.map((c) => `<option value="${c.code}" ${c.code === country ? 'selected' : ''}>${countryLabel(c.code)}${c.count ? ` (${c.count})` : ''}</option>`).join(''));
+  $('#chCountry').onchange = (e) => {
+    country = e.target.value;
+    history.replaceState(null, '', '#/videos/channels' + (country ? '?country=' + country : ''));
+    draw();
+  };
+  const draw = async () => {
+    const qs = new URLSearchParams();
+    if (term) qs.set('q', term);
+    if (country) qs.set('country', country);
+    const list = await api('/channels?' + qs);
     $('#chList').innerHTML = list.length ? `<div class="people">${list.map((c) => `<a class="person" href="#/videos/channel/${c.id}">
         <div class="avatar">${esc(initials(c.channel_name))}</div>
-        <div style="min-width:0"><b>${esc(c.channel_name)}</b><div class="muted small">${plural(c.subscribers, 'subscriber')} · ${plural(c.uploads, 'upload')}</div>
+        <div style="min-width:0"><b>${esc(c.channel_name)}</b><div class="muted small">${c.channel_country ? flag(c.channel_country) + ' · ' : ''}${plural(c.subscribers, 'subscriber')} · ${plural(c.uploads, 'upload')}</div>
         ${c.channel_about || c.church ? `<div class="muted small clamp1">${esc(c.channel_about || c.church)}</div>` : ''}</div></a>`).join('')}</div>`
-      : `<div class="empty">${term ? 'No channels match.' : 'No channels yet.'}</div>`;
+      : `<div class="empty">${term ? 'No channels match.' : country ? 'No channels in this country yet.' : 'No channels yet.'}</div>`;
   };
-  $('#chSearch').onsubmit = (e) => { e.preventDefault(); draw(new FormData(e.target).get('q').trim()); };
+  $('#chSearch').onsubmit = (e) => { e.preventDefault(); term = new FormData(e.target).get('q').trim(); draw(); };
   draw();
 }
 
@@ -377,8 +392,9 @@ async function renderChannel(view, uid) {
   view.innerHTML = `<div class="page wide">
     <div class="channel-banner"><div class="avatar" style="width:72px;height:72px;font-size:1.5rem">${esc(initials(ch.channel_name))}</div>
       <div style="flex:1;min-width:0"><h2 style="margin:0">${esc(ch.channel_name)}</h2>
-        <div class="small" style="opacity:.85">${ch.has_custom_name ? `by ${esc(ch.display_name)} · ` : ''}@${esc(ch.username)} · <span id="subCount">${plural(ch.subscribers, 'subscriber')}</span> · ${plural(vids.length, 'upload')}</div>
-        ${ch.channel_about ? `<div class="small" style="opacity:.9;margin-top:4px;white-space:pre-wrap">${esc(ch.channel_about)}</div>` : ch.headline ? `<div class="small" style="opacity:.85">${esc(ch.headline)}${ch.church ? ' · ' + esc(ch.church) : ''}</div>` : ''}</div>
+        <div class="small" style="opacity:.85">${ch.has_custom_name ? `by ${esc(ch.display_name)} · ` : ''}@${esc(ch.username)} · ${ch.channel_country ? countryLabel(ch.channel_country) + ' · ' : ''}<span id="subCount">${plural(ch.subscribers, 'subscriber')}</span> · ${plural(vids.length, 'upload')}</div>
+        ${ch.channel_about ? `<div class="small" style="opacity:.9;margin-top:4px;white-space:pre-wrap">${esc(ch.channel_about)}</div>` : ch.headline ? `<div class="small" style="opacity:.85">${esc(ch.headline)}${ch.church ? ' · ' + esc(ch.church) : ''}</div>` : ''}
+        ${mine && !ch.channel_country ? '<div class="small" style="margin-top:6px"><a class="on-dark" href="#" id="addCountry">📍 Add your country</a> so people near you can find your channel.</div>' : ''}</div>
       ${mine ? `<div class="row wrap"><button class="btn ghost on-dark" id="editCh">✏️ Edit channel</button><a class="btn gold" href="#/videos/upload" style="text-decoration:none">⬆ Upload</a></div>`
         : `<div class="row wrap"><button class="btn gold" id="subBtn">${ch.subscribed ? 'Subscribed ✓' : 'Subscribe'}</button><button class="btn ghost on-dark" id="dmCh">✉️ Message</button></div>`}</div>
     ${stores.length || mine ? `<div class="sec-head"><h3 style="margin:0">🛍️ ${mine ? 'My stores' : 'Stores'}</h3>${mine ? '<a href="#/stores/new">+ Open a store</a>' : ''}</div>
@@ -406,10 +422,13 @@ async function renderChannel(view, uid) {
     location.hash = '#/chats/' + cid;
   };
   const ed = $('#editCh');
+  const addC = $('#addCountry');
+  if (addC) addC.onclick = (e) => { e.preventDefault(); ed.click(); };
   if (ed) ed.onclick = () => {
     const dlg = document.createElement('dialog');
     dlg.innerHTML = `<form method="dialog"><h3>Your channel</h3>
       <label class="field"><span>Channel name (leave empty to use your own name)</span><input type="text" name="channel_name" maxlength="60" value="${esc(ch.has_custom_name ? ch.channel_name : '')}" placeholder="${esc(ch.display_name)}"></label>
+      <label class="field"><span>Country</span><select name="channel_country" required><option value="">Choose your country…</option>${countryOptions(ch.channel_country)}</select></label>
       <label class="field"><span>About the channel</span><textarea name="channel_about" maxlength="1000" placeholder="What you share: sermons, music, health talks… Your church or ministry.">${esc(ch.channel_about)}</textarea></label>
       <div class="row"><span class="spacer"></span><button class="btn ghost" value="cancel" formnovalidate>Cancel</button><button class="btn" value="ok">Save</button></div></form>`;
     document.body.append(dlg); dlg.showModal();

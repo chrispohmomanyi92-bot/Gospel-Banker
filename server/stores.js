@@ -6,6 +6,7 @@ import { mkdirSync, unlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { db } from './db.js';
 import { addColumn } from './videos.js';
+import { isCountry } from '../public/countries.js';
 
 export const STORE_CATEGORIES = [
   { key: 'books', label: 'Books & Bibles', icon: '📚' },
@@ -53,6 +54,7 @@ CREATE INDEX IF NOT EXISTS idx_products_store ON store_products(store_id, id);
 `);
 // Lets a chat show which store its group belongs to.
 addColumn('conversations', 'store_id', 'INTEGER');
+addColumn('stores', 'country', "TEXT NOT NULL DEFAULT ''"); // two-letter code, e.g. KE
 
 const STORE_DIR = join(resolve(process.env.MEDIA_DIR || './data/media'), 'stores');
 mkdirSync(STORE_DIR, { recursive: true });
@@ -96,7 +98,7 @@ export function registerStoreRoutes(app, { auth, staffOnly, screen, isStaff }) {
   };
   const storeFields = (body) => ({
     name: clean(body.name, 80), category: body.category, description: clean(body.description, 3000),
-    location: clean(body.location, 120), contact: clean(body.contact, 160),
+    location: clean(body.location, 120), contact: clean(body.contact, 160), country: String(body.country || '').toUpperCase(),
   });
 
   app.get('/api/stores/categories', (req, res) => {
@@ -104,8 +106,13 @@ export function registerStoreRoutes(app, { auth, staffOnly, screen, isStaff }) {
     res.json(STORE_CATEGORIES.map((c) => ({ ...c, count: counts[c.key] || 0 })));
   });
 
+  // Countries that have stores, for the country filter.
+  app.get('/api/stores/countries', auth, (req, res) => {
+    res.json(q(`SELECT country AS code, COUNT(*) AS count FROM stores WHERE status = 'approved' AND country != '' GROUP BY country ORDER BY count DESC`).all());
+  });
+
   app.get('/api/stores', auth, (req, res) => {
-    const { category, q: term, owner } = req.query;
+    const { category, q: term, owner, country } = req.query;
     const where = [];
     const args = [];
     if (owner) {
@@ -113,6 +120,7 @@ export function registerStoreRoutes(app, { auth, staffOnly, screen, isStaff }) {
       if (Number(owner) !== req.user.id && !isStaff(req.user)) where.push(`s.status = 'approved'`);
     } else where.push(`s.status = 'approved'`);
     if (category && CAT_KEYS.has(category)) { where.push('s.category = ?'); args.push(category); }
+    if (country && isCountry(country)) { where.push('s.country = ?'); args.push(country); }
     if (term) {
       where.push(`(s.name LIKE ? OR s.description LIKE ? OR s.location LIKE ? OR EXISTS (SELECT 1 FROM store_products p WHERE p.store_id = s.id AND (p.name LIKE ? OR p.description LIKE ?)))`);
       args.push(...Array(5).fill(`%${term}%`));
@@ -133,12 +141,13 @@ export function registerStoreRoutes(app, { auth, staffOnly, screen, isStaff }) {
     const f = storeFields(req.body);
     if (!f.name) return fail(400, 'Please give your store a name.');
     if (!CAT_KEYS.has(f.category)) return fail(400, 'Please pick what your store sells.');
+    if (!isCountry(f.country)) return fail(400, 'Please choose the country your store is in.');
     const { n } = q('SELECT COUNT(*) AS n FROM stores WHERE owner_id = ?').get(req.user.id);
     if (n >= MAX_STORES_PER_MEMBER && !isStaff(req.user)) return fail(400, `You can have up to ${MAX_STORES_PER_MEMBER} stores.`);
     if (!(await checkText(req.user, `${f.name}\n${f.description}\n${f.location}\n${f.contact}`, fail))) return;
     const status = isStaff(req.user) ? 'approved' : 'pending';
-    const store = q(`INSERT INTO stores (owner_id, name, category, description, location, contact, logo, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`).get(req.user.id, f.name, f.category, f.description, f.location, f.contact, req.file?.filename || null, status);
+    const store = q(`INSERT INTO stores (owner_id, name, category, description, location, contact, country, logo, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`).get(req.user.id, f.name, f.category, f.description, f.location, f.contact, f.country, req.file?.filename || null, status);
     // The store's promotion group: the owner starts in it, shoppers join from the store page.
     const gid = q('INSERT INTO conversations (name, is_group, created_by, store_id) VALUES (?, 1, ?, ?)').run(`🛍️ ${f.name}`, req.user.id, store.id).lastInsertRowid;
     q('INSERT INTO conversation_members (conversation_id, user_id) VALUES (?, ?)').run(gid, req.user.id);
@@ -153,10 +162,11 @@ export function registerStoreRoutes(app, { auth, staffOnly, screen, isStaff }) {
     const f = storeFields(req.body);
     if (!f.name) return fail(400, 'Please give your store a name.');
     if (!CAT_KEYS.has(f.category)) return fail(400, 'Please pick what your store sells.');
+    if (!isCountry(f.country)) return fail(400, 'Please choose the country your store is in.');
     if (!(await checkText(req.user, `${f.name}\n${f.description}\n${f.location}\n${f.contact}`, fail))) return;
     const logo = req.file?.filename || (req.body.remove_logo === '1' ? null : s.logo);
-    q('UPDATE stores SET name = ?, category = ?, description = ?, location = ?, contact = ?, logo = ? WHERE id = ?')
-      .run(f.name, f.category, f.description, f.location, f.contact, logo, s.id);
+    q('UPDATE stores SET name = ?, category = ?, description = ?, location = ?, contact = ?, country = ?, logo = ? WHERE id = ?')
+      .run(f.name, f.category, f.description, f.location, f.contact, f.country, logo, s.id);
     if (logo !== s.logo) removeImage(s.logo);
     if (f.name !== s.name && s.group_id) q('UPDATE conversations SET name = ? WHERE id = ?').run(`🛍️ ${f.name}`, s.group_id);
     res.json({ store: shape(getStore(s.id)) });
