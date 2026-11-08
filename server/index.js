@@ -7,7 +7,7 @@ import jwt from 'jsonwebtoken';
 import { Server } from 'socket.io';
 import { db, seedIfEmpty, SECTIONS } from './db.js';
 import { moderate, aiEnabled } from './moderation.js';
-import { registerVideoRoutes } from './videos.js';
+import { registerVideoRoutes, addColumn } from './videos.js';
 import { registerStoreRoutes } from './stores.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || randomBytes(32).toString('hex');
@@ -159,21 +159,29 @@ app.get('/api/conversations/:id/messages', auth, (req, res) => {
   const cid = Number(req.params.id);
   if (!memberOf(cid, req.user.id)) return res.status(403).json({ error: 'Not in this chat.' });
   const before = Number(req.query.before) || Number.MAX_SAFE_INTEGER;
-  const rows = q(`SELECT m.*, u.display_name AS sender_name FROM messages m JOIN users u ON u.id = m.sender_id
+  const rows = q(`SELECT m.*, u.display_name AS sender_name, r.body AS reply_body, ru.display_name AS reply_name
+    FROM messages m JOIN users u ON u.id = m.sender_id
+    LEFT JOIN messages r ON r.id = m.reply_to LEFT JOIN users ru ON ru.id = r.sender_id
     WHERE m.conversation_id = ? AND m.id < ? ORDER BY m.id DESC LIMIT 50`).all(cid, before).reverse();
   if (rows.length) q('UPDATE conversation_members SET last_read_id = MAX(last_read_id, ?) WHERE conversation_id = ? AND user_id = ?').run(rows.at(-1).id, cid, req.user.id);
   res.json(rows);
 });
 
-async function sendMessage(user, cid, body) {
+// Swipe-to-reply: a message can quote an earlier message from the same chat.
+addColumn('messages', 'reply_to', 'INTEGER');
+
+async function sendMessage(user, cid, body, replyTo) {
   if (!memberOf(cid, user.id)) return { error: 'Not in this chat.' };
   const text = String(body || '').trim().slice(0, 4000);
   if (!text) return { error: 'Empty message.' };
   const verdict = await screen(userById(user.id), text, 'message');
   if (!verdict.allowed) return { error: verdict.reason, blocked: true };
-  const msg = q(`INSERT INTO messages (conversation_id, sender_id, body, flagged) VALUES (?, ?, ?, ?) RETURNING *`)
-    .get(cid, user.id, verdict.text, verdict.flagged ? 1 : 0);
+  const quoted = replyTo ? q(`SELECT m.id, m.body, u.display_name FROM messages m JOIN users u ON u.id = m.sender_id
+    WHERE m.id = ? AND m.conversation_id = ?`).get(Number(replyTo), cid) : null;
+  const msg = q(`INSERT INTO messages (conversation_id, sender_id, body, flagged, reply_to) VALUES (?, ?, ?, ?, ?) RETURNING *`)
+    .get(cid, user.id, verdict.text, verdict.flagged ? 1 : 0, quoted?.id ?? null);
   msg.sender_name = user.display_name;
+  if (quoted) { msg.reply_body = quoted.body; msg.reply_name = quoted.display_name; }
   io.to(`conv:${cid}`).emit('message:new', msg);
   const members = q('SELECT user_id FROM conversation_members WHERE conversation_id = ?').all(cid);
   for (const m of members) io.to(`user:${m.user_id}`).emit('conversation:activity', { id: cid });
@@ -181,7 +189,7 @@ async function sendMessage(user, cid, body) {
 }
 
 app.post('/api/conversations/:id/messages', auth, wrap(async (req, res) => {
-  const r = await sendMessage(req.user, Number(req.params.id), req.body?.body);
+  const r = await sendMessage(req.user, Number(req.params.id), req.body?.body, req.body?.reply_to);
   res.status(r.error ? (r.blocked ? 422 : 400) : 200).json(r);
 }));
 
@@ -322,8 +330,8 @@ io.on('connection', (socket) => {
   io.emit('presence', { online: [...online.keys()] });
 
   socket.on('conversation:join', (cid) => { if (memberOf(cid, uid)) socket.join(`conv:${cid}`); });
-  socket.on('message:send', async ({ conversationId, body } = {}, ack) => {
-    const r = await sendMessage(userById(uid), Number(conversationId), body);
+  socket.on('message:send', async ({ conversationId, body, replyTo } = {}, ack) => {
+    const r = await sendMessage(userById(uid), Number(conversationId), body, replyTo);
     if (typeof ack === 'function') ack(r);
   });
   socket.on('message:read', ({ conversationId, messageId } = {}) => {

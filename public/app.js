@@ -382,7 +382,54 @@ function drawConvList(activeId) {
 
 function bubbleHtml(m, isGroup) {
   const me = m.sender_id === state.user.id;
-  return `<div class="bubble ${me ? 'me' : ''} ${m.flagged ? 'flagged' : ''}" data-id="${m.id}">${isGroup && !me ? `<div class="who">${esc(m.sender_name)}</div>` : ''}${linkify(m.body)}<div class="time">${when(m.created_at)}</div></div>`;
+  const quote = m.reply_to ? `<button type="button" class="quote" data-jump="${m.reply_to}"><b>${esc(m.reply_name || 'Message')}</b><span>${esc(m.reply_body ?? 'Original message not loaded')}</span></button>` : '';
+  return `<div class="bubble ${me ? 'me' : ''} ${m.flagged ? 'flagged' : ''}" data-id="${m.id}" data-name="${esc(m.sender_name)}"><span class="swipe-ico" aria-hidden="true">↩</span>${isGroup && !me ? `<div class="who">${esc(m.sender_name)}</div>` : ''}${quote}<div class="text">${linkify(m.body)}</div><div class="time">${when(m.created_at)}<button type="button" class="reply-btn" title="Reply">↩</button></div></div>`;
+}
+
+// Swipe a message left or right (or tap ↩ on a computer) to reply to it.
+function enableSwipeReply(box, onReply) {
+  let start = null;
+  const reset = (b) => { b.style.transform = ''; b.classList.remove('swiping', 'armed'); };
+  box.addEventListener('pointerdown', (e) => {
+    const b = e.target.closest('.bubble');
+    if (!b || e.button > 0 || e.target.closest('a, .quote, .reply-btn')) return;
+    start = { b, x: e.clientX, y: e.clientY, dx: 0, active: false, id: e.pointerId };
+  });
+  box.addEventListener('pointermove', (e) => {
+    if (!start || e.pointerId !== start.id) return;
+    const dx = e.clientX - start.x, dy = e.clientY - start.y;
+    if (!start.active) {
+      if (Math.abs(dy) > 12) { start = null; return; } // scrolling
+      if (Math.abs(dx) < 12) return;
+      start.active = true; start.b.classList.add('swiping');
+      try { start.b.setPointerCapture(e.pointerId); } catch {}
+    }
+    start.dx = Math.max(-90, Math.min(90, dx));
+    start.b.style.transform = `translateX(${start.dx}px)`;
+    start.b.classList.toggle('armed', Math.abs(start.dx) > 55);
+    start.b.classList.toggle('left', start.dx < 0);
+  });
+  const end = () => {
+    if (!start) return;
+    const { b, dx, active } = start; start = null;
+    if (!active) return;
+    b.style.transition = 'transform .18s'; reset(b);
+    setTimeout(() => (b.style.transition = ''), 200);
+    if (Math.abs(dx) > 55) { navigator.vibrate?.(15); onReply(b); }
+  };
+  box.addEventListener('pointerup', end);
+  box.addEventListener('pointercancel', end);
+  box.addEventListener('click', (e) => {
+    const rb = e.target.closest('.reply-btn');
+    if (rb) return onReply(rb.closest('.bubble'));
+    const q = e.target.closest('.quote');
+    if (q) {
+      const target = box.querySelector(`.bubble[data-id="${q.dataset.jump}"]`);
+      if (!target) return toast('That message is further up in the chat.');
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      target.classList.remove('flash'); void target.offsetWidth; target.classList.add('flash');
+    }
+  });
 }
 
 async function openConversation(id) {
@@ -396,6 +443,7 @@ async function openConversation(id) {
       <div style="min-width:0;flex:1"><b>${esc(c.title)}</b><div class="muted small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(sub)}</div></div>
       ${c.store_id ? `<a class="btn small ghost" href="#/stores/${c.store_id}" style="text-decoration:none;white-space:nowrap">🛍️ Store</a>` : ''}</div>
     <div class="messages" id="msgs"></div><div class="typing" id="typing"></div>
+    <div class="reply-bar" id="replyBar" hidden><div class="rb-text"><b id="replyName"></b><span id="replyText"></span></div><button type="button" class="iconbtn" id="replyCancel" title="Cancel reply">✕</button></div>
     <form class="composer" id="sendForm"><textarea name="body" rows="1" placeholder="Message" required></textarea><button class="btn" title="Send">➤</button></form>`;
   const msgs = await api(`/conversations/${id}/messages`);
   const box = $('#msgs');
@@ -405,6 +453,18 @@ async function openConversation(id) {
   socket?.emit('conversation:join', id);
 
   const form = $('#sendForm'); const ta = $('textarea', form);
+  let replyTo = null;
+  const setReply = (b) => {
+    replyTo = b ? Number(b.dataset.id) : null;
+    $('#replyBar').hidden = !b;
+    if (b) {
+      $('#replyName').textContent = b.classList.contains('me') ? 'You' : b.dataset.name;
+      $('#replyText').textContent = $('.text', b).textContent;
+      ta.focus();
+    }
+  };
+  enableSwipeReply(box, setReply);
+  $('#replyCancel').onclick = () => setReply(null);
   // A message started elsewhere, e.g. "Is this product available?" from a store.
   const draft = sessionStorage.getItem('gb_draft_' + id);
   if (draft) { sessionStorage.removeItem('gb_draft_' + id); ta.value = draft; ta.focus(); }
@@ -413,13 +473,14 @@ async function openConversation(id) {
     ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px';
     if (Date.now() - lastTyping > 2000) { socket?.emit('typing', { conversationId: id }); lastTyping = Date.now(); }
   };
-  ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey && !matchMedia('(pointer: coarse)').matches) { e.preventDefault(); form.requestSubmit(); } };
+  ta.onkeydown = (e) => { if (e.key === 'Escape') setReply(null); if (e.key === 'Enter' && !e.shiftKey && !matchMedia('(pointer: coarse)').matches) { e.preventDefault(); form.requestSubmit(); } };
   form.onsubmit = (e) => {
     e.preventDefault();
     const body = ta.value.trim();
     if (!body) return;
     ta.value = ''; ta.style.height = 'auto';
-    socket.emit('message:send', { conversationId: id, body }, (r) => {
+    const quoted = replyTo; setReply(null);
+    socket.emit('message:send', { conversationId: id, body, replyTo: quoted }, (r) => {
       if (r.error) { toast(r.error, true); ta.value = body; }
       else if (r.notice) toast(r.notice);
     });
