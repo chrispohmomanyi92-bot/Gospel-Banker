@@ -1,7 +1,8 @@
 // Member stores: browse by what they sell, open your own store, list products,
 // and run a store group where shoppers hear about new products.
 import { api, esc, toast, linkify, state } from './app.js';
-import { countryOptions, countryLabel, countryName, flag } from './countries.js';
+import { countryOptions, countryLabel, countryName, flag, currencyFor, CURRENCIES } from './countries.js';
+import { cartBarHtml, addToCart, wireCartBar, renderCheckout } from './orders.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 let categories = [];
@@ -33,6 +34,7 @@ export async function renderStores(view, [sub, arg] = []) {
   if (!categories.length) await loadCategories();
   if (sub === 'new') return renderStoreForm(view, null);
   if (sub === 'mine') return renderMine(view);
+  if (sub && /^\d+$/.test(sub) && arg === 'checkout') return renderCheckout(view, Number(sub));
   if (sub && /^\d+$/.test(sub)) return arg === 'edit' ? renderStoreForm(view, await api('/stores/' + sub)) : renderStore(view, Number(sub));
   return renderBrowse(view, sub === 'c' ? arg : '');
 }
@@ -48,7 +50,8 @@ async function renderBrowse(view, cat) {
     <h2 style="margin:0 0 4px">🛍️ Member stores</h2>
     <p class="muted small" style="margin-top:0">Buy from Adventist brothers and sisters: books, health foods, crafts, farm produce and services.</p>
     <div class="row" style="margin-bottom:12px"><a class="btn small gold" href="#/stores/new" style="text-decoration:none">+ Open your store</a>
-      <a class="btn small ghost" href="#/stores/mine" style="text-decoration:none">My stores</a></div>
+      <a class="btn small ghost" href="#/stores/mine" style="text-decoration:none">My stores</a>
+      <a class="btn small ghost" href="#/orders" style="text-decoration:none">🧾 Orders</a></div>
     <form class="row" id="sSearch" style="margin-bottom:10px"><input type="search" name="q" value="${esc(term)}" placeholder="Search stores and products"><button class="btn">Search</button></form>
     <label class="country-filter"><span>Country</span><select id="sCountry"><option value="">🌍 All countries</option>
       ${countries.map((c) => `<option value="${c.code}" ${c.code === country ? 'selected' : ''}>${countryLabel(c.code)}${c.count ? ` (${c.count})` : ''}</option>`).join('')}</select></label>
@@ -105,8 +108,16 @@ function renderStoreForm(view, s) {
       <label class="field"><span>About your store</span><textarea name="description" maxlength="3000" placeholder="What you sell, delivery, opening days (closed on Sabbath)…">${esc(s?.description || '')}</textarea></label>
       <div class="row wrap"><label class="field" style="flex:1;min-width:200px"><span>Country</span><select name="country" required><option value="">Choose a country…</option>${countryOptions(s?.country || '')}</select></label>
         <label class="field" style="flex:1;min-width:200px"><span>Town or area</span><input type="text" name="location" maxlength="120" value="${esc(s?.location || '')}" placeholder="e.g. Nairobi, Kisii town"></label></div>
-      <div class="row wrap">
-        <label class="field" style="flex:1;min-width:200px"><span>How to buy (phone, WhatsApp, M-Pesa till)</span><input type="text" name="contact" maxlength="160" value="${esc(s?.contact || '')}"></label></div>
+      <label class="field"><span>Phone or WhatsApp for customers</span><input type="text" name="contact" maxlength="160" value="${esc(s?.contact || '')}" placeholder="e.g. 0712 345 678"></label>
+      <fieldset class="card" style="background:var(--surface-2);box-shadow:none"><legend><b>🛒 Orders</b></legend>
+        <p class="muted small" style="margin-top:0">Shoppers add products to a cart and place an order. You get it in your chats and on your Orders page.</p>
+        <div class="kind-pills" style="margin-bottom:12px">
+          <label><input type="checkbox" name="offers_delivery" value="1" ${!s || s.offers_delivery ? 'checked' : ''}><span>🚚 I deliver</span></label>
+          <label><input type="checkbox" name="offers_pickup" value="1" ${!s || s.offers_pickup ? 'checked' : ''}><span>🏪 Buyers can pick up</span></label>
+          <label><input type="checkbox" name="pay_on_delivery" value="1" ${!s || s.pay_on_delivery ? 'checked' : ''}><span>💵 Pay on delivery/pickup is OK</span></label></div>
+        <label class="field"><span>How buyers pay you (shown at checkout)</span><input type="text" name="payment_info" maxlength="300" value="${esc(s?.payment_info || '')}" placeholder="e.g. M-Pesa Till 123456, or Paybill 400200 Acc 1234"></label>
+        <label class="field" style="margin-bottom:0"><span>Delivery details (optional)</span><input type="text" name="delivery_info" maxlength="300" value="${esc(s?.delivery_info || '')}" placeholder="e.g. Free in Nairobi CBD, KSh 200 elsewhere, 1-2 days"></label>
+      </fieldset>
       <button class="btn gold" style="width:100%">${editing ? 'Save changes' : 'Open my store'}</button></form></div>`;
   const form = $('#storeForm');
   form.logo.onchange = () => {
@@ -142,14 +153,21 @@ async function renderStore(view, id) {
         <button class="btn ghost on-dark" id="shareBtn" title="Share">↗</button></div></div>
     ${s.status !== 'approved' ? `<div class="card small">⏳ ${s.status === 'pending' ? 'This store is waiting for a moderator. Only you and moderators can see it for now, but you can already add products.' : 'This store was not approved. Edit it or contact a moderator.'}</div>` : ''}
     ${s.description || s.contact ? `<div class="card">${s.description ? `<div class="post-body">${linkify(s.description)}</div>` : ''}${s.contact ? `<div class="small" style="margin-top:8px">📞 <b>How to buy:</b> ${contactHtml(s.contact)}</div>` : ''}</div>` : ''}
+    ${s.can_edit ? `<a class="card row" href="#/orders/seller?store=${s.id}" style="text-decoration:none;color:inherit"><span style="font-size:1.5rem">🧾</span><div style="flex:1"><b>Orders for this store</b><div class="muted small">Confirm, send and track what shoppers ordered</div></div><span>›</span></a>` : ''}
+    ${!mine && s.payment_info || s.delivery_info ? `<div class="kv" style="margin:0 0 6px">${s.delivery_info ? `<span>🚚 ${esc(s.delivery_info)}</span>` : ''}${!mine && s.payment_info ? `<span>💳 ${esc(s.payment_info)}</span>` : ''}</div>` : ''}
     <div class="row" style="margin:16px 0 8px"><h3 style="flex:1;margin:0">Products (${s.products.length})</h3>${s.can_edit ? '<button class="btn small gold" id="addProd">+ Add product</button>' : ''}</div>
     ${s.products.length ? `<div class="pgrid">${s.products.map((p) => `<div class="product" data-pid="${p.id}">
         <div class="pimg">${p.image_url ? `<img src="${esc(p.image_url)}" alt="" loading="lazy">` : s.category_icon}</div>
-        <div class="pbody"><b class="clamp2">${esc(p.name)}</b>${p.price ? `<div class="price">${esc(p.price)}</div>` : ''}
+        <div class="pbody"><b class="clamp2">${esc(p.name)}</b><div class="price">${p.amount != null ? esc(p.price) : '<span class="muted small">Ask for price</span>'}${p.in_stock ? '' : ' <span class="tag">Sold out</span>'}</div>
           ${p.description ? `<div class="muted small clamp2">${esc(p.description)}</div>` : ''}
-          <div class="row" style="margin-top:auto;padding-top:6px">${mine ? '' : '<button class="btn small" data-act="ask">✉️ Ask / order</button>'}${s.can_edit ? '<button class="btn small ghost" data-act="del" title="Remove">🗑️</button>' : ''}</div></div></div>`).join('')}</div>`
+          <div class="row wrap" style="margin-top:auto;padding-top:6px;gap:6px">${mine ? '' : p.amount != null && p.in_stock && s.status === 'approved'
+            ? '<button class="btn small gold" data-act="cart">🛒 Add to cart</button><button class="btn small ghost" data-act="ask" title="Ask the seller">✉️</button>'
+            : '<button class="btn small" data-act="ask">✉️ Ask the seller</button>'}
+            ${s.can_edit ? `<button class="btn small ghost" data-act="stock">${p.in_stock ? 'Mark sold out' : 'Back in stock'}</button><button class="btn small ghost" data-act="del" title="Remove">🗑️</button>` : ''}</div></div></div>`).join('')}</div>`
       : `<div class="empty">${s.can_edit ? 'Add your first product so shoppers can see what you sell.' : 'No products listed yet. Message the seller to ask what is available.'}</div>`}
-    ${s.can_edit ? '<div style="margin-top:24px"><button class="btn small danger" id="delStore">Close this store</button></div>' : ''}</div>`;
+    ${s.can_edit ? '<div style="margin-top:24px"><button class="btn small danger" id="delStore">Close this store</button></div>' : ''}
+    ${mine ? '' : cartBarHtml(s)}</div>`;
+  if (!mine) wireCartBar(view, s);
 
   const ask = async (text) => {
     const { id: cid } = await api('/conversations', { method: 'POST', body: { user_ids: [s.owner_id] } });
@@ -172,7 +190,14 @@ async function renderStore(view, id) {
     const b = e.target.closest('[data-act]');
     if (!b) return;
     const p = s.products.find((x) => x.id === Number(b.closest('[data-pid]').dataset.pid));
-    if (b.dataset.act === 'ask') ask(`Hello! Is "${p.name}"${p.price ? ` (${p.price})` : ''} available?`).catch((err) => toast(err.message, true));
+    if (b.dataset.act === 'cart') {
+      addToCart(s.id, p.id);
+      toast(`Added "${p.name}" to your cart`);
+      view.querySelector('.cart-bar')?.replaceWith(Object.assign(document.createElement('div'), { innerHTML: cartBarHtml(s) }).firstElementChild);
+      wireCartBar(view, s);
+    } else if (b.dataset.act === 'stock') {
+      await api(`/stores/${id}/products/${p.id}`, { method: 'PATCH', body: { in_stock: !p.in_stock } }); renderStore(view, id);
+    } else if (b.dataset.act === 'ask') ask(`Hello! Is "${p.name}"${p.price ? ` (${p.price})` : ''} available?`).catch((err) => toast(err.message, true));
     else if (b.dataset.act === 'del' && confirm(`Remove "${p.name}"?`)) {
       await api(`/stores/${id}/products/${p.id}`, { method: 'DELETE' }); toast('Removed'); renderStore(view, id);
     }
@@ -192,7 +217,8 @@ function productDialog(s, done) {
     <label class="dropzone" style="padding:16px"><input type="file" name="image" accept="image/jpeg,image/png,image/webp" hidden>
       <div id="pImg">📷 Add a photo (optional)</div></label>
     <label class="field" style="margin-top:12px"><span>Name</span><input type="text" name="name" maxlength="100" required placeholder="e.g. Steps to Christ (paperback)"></label>
-    <label class="field"><span>Price</span><input type="text" name="price" maxlength="40" placeholder="e.g. KSh 450"></label>
+    <div class="row"><label class="field" style="width:110px;flex:none"><span>Currency</span><select name="currency">${CURRENCIES.map((c) => `<option ${c === (s.currency || currencyFor(s.country)) ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
+      <label class="field" style="flex:1"><span>Price (leave empty for "ask for price")</span><input type="text" inputmode="decimal" name="amount" maxlength="12" placeholder="e.g. 450"></label></div>
     <label class="field"><span>Description</span><textarea name="description" maxlength="2000"></textarea></label>
     <label class="pick" style="padding:0 0 12px"><input type="checkbox" name="announce" checked> Tell the store group about it</label>
     <div class="row"><span class="spacer"></span><button class="btn ghost" value="cancel" formnovalidate>Cancel</button><button class="btn" value="ok">Add</button></div></form>`;

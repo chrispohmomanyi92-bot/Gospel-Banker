@@ -2,6 +2,7 @@
 import { mountDonateButton } from './donate.js';
 import { renderVideos, pendingVideosHtml, videoShelfHtml } from './videos.js';
 import { renderStores, pendingStoresHtml, storeShelf } from './stores.js';
+import { renderOrders } from './orders.js';
 const $ = (sel, el = document) => el.querySelector(sel);
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const initials = (name) => (name || '?').split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
@@ -118,13 +119,14 @@ async function route() {
   if (!state.user) return;
   const [, rawTab = 'feed', ...rest] = location.hash.split('/');
   const tab = rawTab.split('?')[0];
-  document.querySelectorAll('.tabs a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tab));
+  document.querySelectorAll('.tabs a').forEach((a) => a.classList.toggle('active', a.dataset.tab === (tab === 'orders' ? 'stores' : tab)));
   const view = $('#view');
   view.scrollTop = 0;
   try {
     if (tab === 'feed') await renderFeed(view, rest[0]);
     else if (tab === 'videos') await renderVideos(view, rest.map((r) => r.split('?')[0]));
     else if (tab === 'stores') await renderStores(view, rest.map((r) => r.split('?')[0]));
+    else if (tab === 'orders') await renderOrders(view, rest.map((r) => r.split('?')[0]));
     else if (tab === 'chats') await renderChats(view, rest[0]);
     else if (tab === 'library') await (rest[0] ? renderSection(view, rest[0]) : renderLibrary(view));
     else if (tab === 'profile') await renderProfile(view, rest[0]);
@@ -243,7 +245,7 @@ function drawLauncher() {
   if (!el) return;
   const unread = state.convs.reduce((n, c) => n + (c.unread || 0), 0);
   const fixed = [['#/videos', '🎬', 'Videos'], ['#/videos/channels', '📺', 'Channels'], ['#/videos/preachers', '🎤', 'Preachers & authors'],
-    ['#/stores', '🛍️', 'Member stores'], ['#/videos/downloads', '⬇️', 'Downloads'], ['#/chats', '💬', 'Chats', unread]];
+    ['#/stores', '🛍️', 'Member stores'], ['#/orders', '🧾', 'My orders'], ['#/videos/downloads', '⬇️', 'Downloads'], ['#/chats', '💬', 'Chats', unread]];
   const secs = state.sections.map((s) => [`#/library/${s.key}`, s.icon, s.label, 0, s.count]);
   el.innerHTML = [...fixed, ...secs].map(([href, icon, label, badge]) =>
     `<a href="${href}"><span class="li">${icon}${badge ? `<span class="badge">${badge}</span>` : ''}</span><span class="ll">${esc(label)}</span></a>`).join('');

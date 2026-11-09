@@ -212,3 +212,15 @@ export function countryOptions(selected = '', first = ['KE', 'UG', 'TZ', 'RW', '
   return `<optgroup label="Common">${first.map((c) => opt(inFirst)([c, NAMES.get(c)])).join('')}</optgroup>`
     + `<optgroup label="All countries">${COUNTRIES.map(opt(!inFirst)).join('')}</optgroup>`;
 }
+
+// Currency shown for prices in a store's country (US dollars where not listed).
+const CURRENCY = {
+  KE: 'KSh', UG: 'UGX', TZ: 'TSh', RW: 'RWF', BI: 'BIF', ET: 'ETB', NG: '₦', GH: 'GH₵', ZA: 'R', ZM: 'ZMW', MW: 'MWK', CD: 'CDF',
+  SS: 'SSP', SD: 'SDG', SO: 'USD', MZ: 'MZN', BW: 'BWP', NA: 'N$', LS: 'LSL', SZ: 'SZL', CM: 'XAF', GA: 'XAF', CG: 'XAF', TD: 'XAF',
+  CF: 'XAF', GQ: 'XAF', SN: 'XOF', CI: 'XOF', BJ: 'XOF', BF: 'XOF', ML: 'XOF', NE: 'XOF', TG: 'XOF', GW: 'XOF', LR: 'LRD', SL: 'SLE',
+  GB: '£', DE: '€', FR: '€', IT: '€', ES: '€', NL: '€', BE: '€', IE: '€', PT: '€', AT: '€', FI: '€', GR: '€', IN: '₹', PH: '₱',
+  AU: 'A$', CA: 'C$', NZ: 'NZ$', JP: '¥', CN: '¥', KR: '₩', BR: 'R$', MX: 'MX$', JM: 'J$', TT: 'TT$',
+};
+export const currencyFor = (code) => CURRENCY[code] || 'USD';
+export const CURRENCIES = [...new Set(['KSh', 'UGX', 'TSh', 'RWF', 'USD', ...Object.values(CURRENCY)])];
+export const fmtMoney = (amount, currency) => `${currency || ''} ${Number(amount || 0).toLocaleString('en-US', { maximumFractionDigits: 2 })}`.trim();

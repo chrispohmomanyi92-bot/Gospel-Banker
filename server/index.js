@@ -9,6 +9,7 @@ import { db, seedIfEmpty, SECTIONS } from './db.js';
 import { moderate, aiEnabled } from './moderation.js';
 import { registerVideoRoutes, addColumn } from './videos.js';
 import { registerStoreRoutes } from './stores.js';
+import { registerOrderRoutes } from './orders.js';
 import { registerDonateRoutes } from './donate.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || randomBytes(32).toString('hex');
@@ -201,6 +202,23 @@ async function sendMessage(user, cid, body, replyTo) {
   return { message: msg, notice: verdict.flagged ? verdict.reason : null };
 }
 
+// Send a message in the one-to-one chat between two people, starting the chat if needed.
+async function directMessage(from, toId, body) {
+  let cid = q(`SELECT c.id FROM conversations c
+    JOIN conversation_members a ON a.conversation_id = c.id AND a.user_id = ?
+    JOIN conversation_members b ON b.conversation_id = c.id AND b.user_id = ?
+    WHERE c.is_group = 0`).get(from.id, toId)?.id;
+  if (!cid) {
+    cid = Number(q('INSERT INTO conversations (name, is_group, created_by) VALUES (NULL, 0, ?)').run(from.id).lastInsertRowid);
+    for (const id of [from.id, toId]) q('INSERT INTO conversation_members (conversation_id, user_id) VALUES (?, ?)').run(cid, id);
+    for (const id of [from.id, toId]) {
+      io.in(`user:${id}`).socketsJoin(`conv:${cid}`);
+      io.to(`user:${id}`).emit('conversation:new', { id: cid });
+    }
+  }
+  return sendMessage(from, cid, body);
+}
+
 app.post('/api/conversations/:id/messages', auth, wrap(async (req, res) => {
   const r = await sendMessage(req.user, Number(req.params.id), req.body?.body, req.body?.reply_to);
   res.status(r.error ? (r.blocked ? 422 : 400) : 200).json(r);
@@ -316,6 +334,7 @@ app.post('/api/admin/users/:id/role', auth, (req, res) => {
 
 registerVideoRoutes(app, { auth, staffOnly, screen, isStaff, publicUser, userById });
 registerStoreRoutes(app, { auth, staffOnly, screen, isStaff });
+registerOrderRoutes(app, { auth, isStaff, screen, directMessage });
 registerDonateRoutes(app, { auth });
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
