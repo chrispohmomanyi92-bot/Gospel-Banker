@@ -6,6 +6,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdirSync, unlinkSync } from 'node:fs';
 import { join, extname, resolve } from 'node:path';
 import { db } from './db.js';
+import { isCountry } from '../public/countries.js';
 
 export const VIDEO_CATEGORIES = [
   { key: 'music', label: 'Music Videos', icon: '🎵' },
@@ -77,6 +78,7 @@ addColumn('videos', 'speaker', "TEXT NOT NULL DEFAULT ''");     // preacher, aut
 addColumn('videos', 'original_name', "TEXT NOT NULL DEFAULT ''");
 addColumn('users', 'channel_name', "TEXT NOT NULL DEFAULT ''");
 addColumn('users', 'channel_about', "TEXT NOT NULL DEFAULT ''");
+addColumn('users', 'channel_country', "TEXT NOT NULL DEFAULT ''"); // two-letter code, e.g. KE
 db.exec(`CREATE INDEX IF NOT EXISTS idx_videos_speaker ON videos(status, speaker COLLATE NOCASE);
   CREATE INDEX IF NOT EXISTS idx_videos_uploader ON videos(uploader_id, status);`);
 
@@ -278,15 +280,23 @@ export function registerVideoRoutes(app, { auth, staffOnly, screen, isStaff, pub
 
   // Channels: every member has one. They show up in the list once they have
   // something public or have named their channel.
+  const LISTED = `(u.channel_name != '' OR EXISTS (SELECT 1 FROM videos v WHERE v.uploader_id = u.id AND v.status = 'approved'))`;
+  // Countries that have channels, for the country filter.
+  app.get('/api/channels/countries', auth, (req, res) => {
+    res.json(q(`SELECT u.channel_country AS code, COUNT(*) AS count FROM users u WHERE u.channel_country != '' AND ${LISTED} GROUP BY u.channel_country ORDER BY count DESC`).all());
+  });
+
   app.get('/api/channels', auth, (req, res) => {
     const term = String(req.query.q || '').trim();
-    const rows = q(`SELECT u.id, u.username, u.display_name, u.headline, u.church, u.channel_about, ${CHANNEL_NAME} AS channel_name,
+    const country = isCountry(req.query.country) ? req.query.country : '';
+    const args = [...(country ? [country] : []), ...(term ? Array(4).fill(`%${term}%`) : [])];
+    const rows = q(`SELECT u.id, u.username, u.display_name, u.headline, u.church, u.channel_about, u.channel_country, ${CHANNEL_NAME} AS channel_name,
         (SELECT COUNT(*) FROM videos v WHERE v.uploader_id = u.id AND v.status = 'approved') AS uploads,
         (SELECT COUNT(*) FROM subscriptions s WHERE s.channel_id = u.id) AS subscribers,
         (SELECT thumb FROM videos v WHERE v.uploader_id = u.id AND v.status = 'approved' AND v.thumb IS NOT NULL ORDER BY v.id DESC LIMIT 1) AS thumb
-      FROM users u WHERE (u.channel_name != '' OR EXISTS (SELECT 1 FROM videos v WHERE v.uploader_id = u.id AND v.status = 'approved'))
+      FROM users u WHERE ${LISTED} ${country ? 'AND u.channel_country = ?' : ''}
       ${term ? `AND (${CHANNEL_NAME} LIKE ? OR u.display_name LIKE ? OR u.channel_about LIKE ? OR u.church LIKE ?)` : ''}
-      ORDER BY subscribers DESC, uploads DESC, channel_name LIMIT 200`).all(...(term ? Array(4).fill(`%${term}%`) : []));
+      ORDER BY subscribers DESC, uploads DESC, channel_name LIMIT 200`).all(...args);
     res.json(rows.map((r) => ({ ...r, thumb_url: r.thumb ? `/media/thumbs/${r.thumb}` : null })));
   });
 
@@ -294,10 +304,12 @@ export function registerVideoRoutes(app, { auth, staffOnly, screen, isStaff, pub
   app.patch('/api/channels/me', auth, async (req, res) => {
     const name = String(req.body?.channel_name ?? '').trim().replace(/\s+/g, ' ').slice(0, 60);
     const about = String(req.body?.channel_about ?? '').trim().slice(0, 1000);
+    const country = String(req.body?.channel_country ?? '').toUpperCase();
+    if (!isCountry(country)) return res.status(400).json({ error: 'Please choose your country.' });
     const v = await screen(req.user, `${name}\n${about}`, 'channel');
     if (!v.allowed || v.flagged) return res.status(422).json({ error: v.reason || 'Please keep your channel respectful.' });
-    q('UPDATE users SET channel_name = ?, channel_about = ? WHERE id = ?').run(name, about, req.user.id);
-    res.json({ channel_name: name || req.user.display_name, channel_about: about });
+    q('UPDATE users SET channel_name = ?, channel_about = ?, channel_country = ? WHERE id = ?').run(name, about, country, req.user.id);
+    res.json({ channel_name: name || req.user.display_name, channel_about: about, channel_country: country });
   });
 
   app.get('/api/channels/:id', auth, (req, res) => {
@@ -305,7 +317,7 @@ export function registerVideoRoutes(app, { auth, staffOnly, screen, isStaff, pub
     if (!u) return res.status(404).json({ error: 'Channel not found.' });
     const subscribers = q('SELECT COUNT(*) AS n FROM subscriptions WHERE channel_id = ?').get(u.id).n;
     const subscribed = Boolean(q('SELECT 1 FROM subscriptions WHERE channel_id = ? AND subscriber_id = ?').get(u.id, req.user.id));
-    res.json({ ...publicUser(u), channel_name: u.channel_name || u.display_name, channel_about: u.channel_about || '', has_custom_name: Boolean(u.channel_name), subscribers, subscribed });
+    res.json({ ...publicUser(u), channel_name: u.channel_name || u.display_name, channel_about: u.channel_about || '', channel_country: u.channel_country || '', has_custom_name: Boolean(u.channel_name), subscribers, subscribed });
   });
 
   app.post('/api/channels/:id/subscribe', auth, (req, res) => {
