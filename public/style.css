@@ -383,3 +383,57 @@ a.on-dark { color: #fff; }
 fieldset.card { border: 1px solid var(--line); }
 /* Keep the Give button from covering the cart bar. */
 body:has(.cart-bar:not([hidden])) .give-fab { bottom: calc(150px + env(safe-area-inset-bottom)); }
+.cart-bar .go { border: 0; font: inherit; font-weight: 700; cursor: pointer; padding: 9px 16px; }
+.cart-bar > span { font-size: 1.05rem; }
+
+/* store page, shop style: big cards, "Add to order" turns into a stepper */
+.shop-search { margin-bottom: 10px; }
+.pgrid.shop { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+@media (max-width: 520px) { .pgrid.shop { grid-template-columns: 1fr; } }
+.pgrid.shop .pimg { aspect-ratio: 4 / 3; position: relative; overflow: hidden; }
+.pgrid.shop .pimg img { position: absolute; inset: 0; }
+@media (max-width: 520px) { .pgrid.shop .pimg { aspect-ratio: auto; height: 170px; } }
+.pimg .soldout { position: absolute; left: 8px; top: 8px; background: var(--ink); color: var(--bg); font-size: .75rem; font-weight: 700; padding: 3px 8px; border-radius: 6px; }
+.product .pbody { display: flex; flex-direction: column; gap: 4px; padding: 12px; flex: 1; }
+.product .price { font-weight: 700; font-size: 1.05rem; }
+.pfoot { margin-top: auto; padding-top: 8px; display: grid; gap: 8px; }
+.add-btn { width: 100%; padding: 11px; }
+.qty-ctl { display: flex; align-items: center; justify-content: space-between; border: 2px solid var(--gold); border-radius: 12px; overflow: hidden; }
+.qty-ctl button { width: 46px; height: 42px; border: 0; background: var(--gold-soft); color: var(--ink); font-size: 1.3rem; font-weight: 700; cursor: pointer; }
+.qty-ctl span { font-size: .9rem; }
+.chat-pill { position: fixed; right: 16px; bottom: calc(76px + env(safe-area-inset-bottom)); z-index: 41; border: 0; border-radius: 999px; padding: 10px 16px; background: var(--brand); color: #fff; font: inherit; font-weight: 700; cursor: pointer; box-shadow: 0 6px 18px rgba(20,40,75,.3); max-width: calc(100% - 32px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (min-width: 900px) { .chat-pill { bottom: 24px; right: 24px; } }
+body:has(.chat-pill) .give-fab { display: none; }
+/* On the store page the order bar stays pinned above the tabs, like a shop counter. */
+.page .cart-bar { position: fixed; left: 12px; right: 12px; bottom: calc(70px + env(safe-area-inset-bottom)); margin: 0 auto; max-width: 640px; z-index: 40; }
+@media (min-width: 900px) { .page .cart-bar { left: 224px; right: 24px; bottom: 20px; } }
+body:has(.cart-bar:not([hidden])) .page { padding-bottom: 170px; }
+body:has(.cart-bar:not([hidden])) .chat-pill { bottom: calc(136px + env(safe-area-inset-bottom)); }
+@media (min-width: 900px) { body:has(.cart-bar:not([hidden])) .chat-pill { bottom: 86px; } }
+
+/* order sheet: slides up from the bottom on phones */
+dialog.sheet { margin: auto auto 0; width: 100%; max-width: 560px; max-height: 92dvh; overflow-y: auto; border-radius: 20px 20px 0 0; padding: 16px 18px calc(18px + env(safe-area-inset-bottom)); }
+@media (min-width: 700px) { dialog.sheet { margin: auto; border-radius: var(--radius); } }
+dialog.sheet[open] { animation: sheet-up .22s ease-out; }
+@keyframes sheet-up { from { transform: translateY(40px); opacity: .4; } }
+@media (prefers-reduced-motion: reduce) { dialog.sheet[open] { animation: none; } }
+.sheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.sheet-head h3 { margin: 0; font-size: 1.25rem; }
+.eyebrow { font-size: .75rem; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); margin: 6px 0 8px; }
+.ways { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; margin-bottom: 10px; }
+.way { position: relative; display: flex; gap: 10px; align-items: flex-start; padding: 12px; border: 1.5px solid var(--line); border-radius: 12px; cursor: pointer; }
+.way.on { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold-soft); }
+.way input { position: absolute; opacity: 0; pointer-events: none; }
+.way > span:last-child { display: flex; flex-direction: column; }
+.way-ico { font-size: 1.4rem; line-height: 1.2; }
+.stepper .remove { width: auto; height: auto; border: 0; background: none; color: #c0392b; font-size: .85rem; font-weight: 600; padding: 0 0 0 6px; }
+.sums { padding-top: 10px; }
+.sum-row { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; }
+.sum-row.total { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 8px; font-size: 1.1rem; }
+.sheet-actions { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; margin-top: 16px; }
+.sheet-actions .btn { padding: 12px; }
+.phone-row { display: flex; gap: 8px; }
+.phone-row select { width: 52%; flex: none; }
+.check-box { background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 4px 0 10px; }
+.check-box .eyebrow { margin-top: 0; }
+body:has(.chat-pill) .page { padding-bottom: 96px; }

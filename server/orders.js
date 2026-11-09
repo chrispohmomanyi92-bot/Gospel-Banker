@@ -3,6 +3,7 @@
 // Buyer and seller are told about every step in their chat.
 import { db } from './db.js';
 import { fmtMoney } from '../public/countries.js';
+import { addColumn } from './videos.js';
 
 export const STATUS_LABEL = {
   placed: 'Order placed', confirmed: 'Confirmed by seller', on_the_way: 'On the way', ready: 'Ready for pickup',
@@ -52,6 +53,11 @@ CREATE TABLE IF NOT EXISTS order_events (
 `);
 
 const clean = (v, max) => String(v ?? '').trim().slice(0, max);
+addColumn('orders', 'delivery_fee', 'REAL NOT NULL DEFAULT 0');
+addColumn('order_items', 'unit', "TEXT NOT NULL DEFAULT ''");
+
+// Delivery fee for an order of this size (free from the store's threshold).
+export const deliveryFee = (s, subtotal) => (s.free_delivery_from != null && subtotal >= s.free_delivery_from ? 0 : s.delivery_fee || 0);
 
 // What each side may move an order to, from each status.
 const SELLER_NEXT = {
@@ -64,7 +70,7 @@ const BUYER_NEXT = { placed: ['cancelled'], on_the_way: ['delivered'], ready: ['
 
 export function registerOrderRoutes(app, { auth, isStaff, screen, directMessage }) {
   const q = (sql) => db.prepare(sql);
-  const SELECT = `SELECT o.*, s.name AS store_name, s.owner_id, s.logo AS store_logo, s.payment_info, s.delivery_info,
+  const SELECT = `SELECT o.*, s.name AS store_name, s.owner_id, s.logo AS store_logo, s.payment_info, s.delivery_info, s.pickup_info, s.location AS store_location, s.pay_on_delivery AS store_pay_on_delivery,
       u.display_name AS buyer_display_name,
       (SELECT COALESCE(SUM(qty), 0) FROM order_items i WHERE i.order_id = o.id) AS item_count
     FROM orders o JOIN stores s ON s.id = o.store_id JOIN users u ON u.id = o.buyer_id`;
@@ -100,8 +106,8 @@ export function registerOrderRoutes(app, { auth, isStaff, screen, directMessage 
     const fulfilment = b.fulfilment === 'pickup' ? 'pickup' : 'delivery';
     if (fulfilment === 'delivery' && !s.offers_delivery) return res.status(400).json({ error: 'This store only offers pickup.' });
     if (fulfilment === 'pickup' && !s.offers_pickup) return res.status(400).json({ error: 'This store only delivers.' });
-    const payment = b.payment_method === 'on_delivery' ? 'on_delivery' : 'mobile';
-    if (payment === 'on_delivery' && !s.pay_on_delivery) return res.status(400).json({ error: 'This store needs payment before it sends your order.' });
+    // Like a shop counter: the buyer orders first; how to pay is on the order page.
+    const payment = b.payment_method === 'on_delivery' && s.pay_on_delivery ? 'on_delivery' : 'mobile';
     const name = clean(b.buyer_name, 80);
     const phone = clean(b.phone, 30);
     const address = clean(b.address, 300);
@@ -113,16 +119,18 @@ export function registerOrderRoutes(app, { auth, isStaff, screen, directMessage 
     const v = await screen(req.user, `${name}\n${address}\n${note}`, 'order');
     if (!v.allowed || v.flagged) return res.status(422).json({ error: v.reason || 'Please keep your order details respectful.' });
 
-    const total = items.reduce((n, i) => n + i.amount * i.qty, 0);
-    const order = q(`INSERT INTO orders (store_id, buyer_id, fulfilment, payment_method, payment_ref, buyer_name, phone, address, note, total, currency)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`).get(s.id, req.user.id, fulfilment, payment, ref, name, phone, address, note, total, currency);
-    const addItem = q('INSERT INTO order_items (order_id, product_id, name, image, unit_price, qty) VALUES (?, ?, ?, ?, ?, ?)');
-    for (const i of items) addItem.run(order.id, i.id, i.name, i.image, i.amount, i.qty);
+    const subtotal = items.reduce((n, i) => n + i.amount * i.qty, 0);
+    const fee = fulfilment === 'delivery' ? deliveryFee(s, subtotal) : 0;
+    const total = subtotal + fee;
+    const order = q(`INSERT INTO orders (store_id, buyer_id, fulfilment, payment_method, payment_ref, buyer_name, phone, address, note, total, currency, delivery_fee)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`).get(s.id, req.user.id, fulfilment, payment, ref, name, phone, address, note, total, currency, fee);
+    const addItem = q('INSERT INTO order_items (order_id, product_id, name, image, unit_price, qty, unit) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    for (const i of items) addItem.run(order.id, i.id, i.name, i.image, i.amount, i.qty, i.unit || '');
     q('INSERT INTO order_events (order_id, status, by_id) VALUES (?, ?, ?)').run(order.id, 'placed', req.user.id);
 
-    tell(req.user, s.owner_id, `🧾 New order #${order.id} for ${s.name}\n${itemsText(items, currency)}\nTotal: ${fmtMoney(total, currency)}\n`
+    tell(req.user, s.owner_id, `🧾 New order #${order.id} for ${s.name}\n${itemsText(items, currency)}\n${fee ? 'Delivery: ' + fmtMoney(fee, currency) + '\n' : ''}Total: ${fmtMoney(total, currency)}\n`
       + `${fulfilment === 'pickup' ? '🏪 Pickup' : '🚚 Deliver to: ' + address}\n📞 ${name}, ${phone}\n`
-      + `💳 ${payment === 'on_delivery' ? 'Pays on ' + (fulfilment === 'pickup' ? 'pickup' : 'delivery') : 'Paying by mobile money' + (ref ? ' (code ' + ref + ')' : '')}`
+      + `💳 ${payment === 'on_delivery' ? 'Pays on ' + (fulfilment === 'pickup' ? 'pickup' : 'delivery') : ref ? 'Paid by mobile money, code ' + ref : 'Not paid yet'}`
       + `${note ? '\n📝 ' + note : ''}\nConfirm it here: ${link(req, order.id)}`);
     res.json({ order: shape(getOrder(order.id)) });
   });
@@ -154,7 +162,8 @@ export function registerOrderRoutes(app, { auth, isStaff, screen, directMessage 
       .map((e) => ({ ...e, label: STATUS_LABEL[e.status] || e.status }));
     const next = (role === 'seller' ? SELLER_NEXT : role === 'buyer' ? BUYER_NEXT : {})[o.status] || [];
     const allowed = next.filter((st) => (o.fulfilment === 'pickup' ? st !== 'on_the_way' : st !== 'ready'));
-    res.json({ ...shape(o), role, items, events, next: allowed.map((st) => ({ status: st, label: STATUS_LABEL[st] })) });
+    res.json({ ...shape(o), role, items, events, pay_on_delivery: Boolean(o.store_pay_on_delivery), delivery_fee_text: o.delivery_fee ? fmtMoney(o.delivery_fee, o.currency) : '',
+      subtotal_text: fmtMoney(o.total - (o.delivery_fee || 0), o.currency), next: allowed.map((st) => ({ status: st, label: STATUS_LABEL[st] })) });
   });
 
   app.post('/api/orders/:id/status', auth, (req, res) => {

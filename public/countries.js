@@ -224,3 +224,28 @@ const CURRENCY = {
 export const currencyFor = (code) => CURRENCY[code] || 'USD';
 export const CURRENCIES = [...new Set(['KSh', 'UGX', 'TSh', 'RWF', 'USD', ...Object.values(CURRENCY)])];
 export const fmtMoney = (amount, currency) => `${currency || ''} ${Number(amount || 0).toLocaleString('en-US', { maximumFractionDigits: 2 })}`.trim();
+
+// Phone dialling codes, for the phone field at checkout.
+const DIAL = {
+  KE: '254', UG: '256', TZ: '255', RW: '250', BI: '257', ET: '251', NG: '234', GH: '233', ZA: '27', ZM: '260', ZW: '263', MW: '265',
+  CD: '243', SS: '211', SD: '249', SO: '252', MZ: '258', BW: '267', NA: '264', LS: '266', SZ: '268', CM: '237', GA: '241', CG: '242',
+  TD: '235', CF: '236', GQ: '240', SN: '221', CI: '225', BJ: '229', BF: '226', ML: '223', NE: '227', TG: '228', GW: '245', LR: '231',
+  SL: '232', GN: '224', GM: '220', MR: '222', CV: '238', AO: '244', MG: '261', MU: '230', SC: '248', KM: '269', DJ: '253', ER: '291',
+  EG: '20', LY: '218', TN: '216', DZ: '213', MA: '212', ST: '239', US: '1', CA: '1', GB: '44', IE: '353', DE: '49', FR: '33', NL: '31',
+  BE: '32', CH: '41', AT: '43', IT: '39', ES: '34', PT: '351', SE: '46', NO: '47', DK: '45', FI: '358', PL: '48', RO: '40', UA: '380',
+  RU: '7', TR: '90', IL: '972', AE: '971', SA: '966', QA: '974', KW: '965', OM: '968', JO: '962', LB: '961', IN: '91', PK: '92',
+  BD: '880', LK: '94', NP: '977', CN: '86', JP: '81', KR: '82', PH: '63', ID: '62', MY: '60', SG: '65', TH: '66', VN: '84', MM: '95',
+  PG: '675', FJ: '679', AU: '61', NZ: '64', BR: '55', AR: '54', MX: '52', CO: '57', PE: '51', CL: '56', VE: '58', JM: '1', HT: '509',
+  TT: '1', GY: '592', BO: '591', EC: '593', CU: '53', DO: '1', HN: '504', GT: '502', SV: '503', NI: '505', CR: '506', PA: '507', PY: '595', UY: '598',
+};
+export const dialFor = (code) => DIAL[code] || '';
+// <option>s for a dialling-code picker, e.g. "🇹🇿 +255 Tanzania".
+export function dialOptions(selected = '') {
+  return COUNTRIES.filter(([c]) => DIAL[c]).map(([c, n]) => `<option value="${c}" ${c === selected ? 'selected' : ''}>${flag(c)} +${DIAL[c]} ${n}</option>`).join('');
+}
+// "+255 712345678" from a picked country and what the buyer typed (a leading 0 is dropped).
+export function fullPhone(code, number) {
+  const n = String(number || '').trim();
+  if (n.startsWith('+') || !DIAL[code]) return n;
+  return `+${DIAL[code]} ${n.replace(/^0+/, '')}`;
+}

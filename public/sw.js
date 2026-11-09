@@ -1,5 +1,5 @@
 // Offline shell: cache the app files, always go to the network for /api and sockets.
-const CACHE = 'gospel-banker-v6';
+const CACHE = 'gospel-banker-v7';
 const SHELL = ['/', '/style.css', '/app.js', '/videos.js', '/offline.js', '/donate.js', '/stores.js', '/countries.js', '/orders.js', '/icon.svg', '/manifest.webmanifest'];
 self.addEventListener('install', (e) => e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())));
 self.addEventListener('activate', (e) => e.waitUntil(

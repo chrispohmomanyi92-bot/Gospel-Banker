@@ -64,6 +64,11 @@ addColumn('stores', 'pay_on_delivery', 'INTEGER NOT NULL DEFAULT 1');
 addColumn('store_products', 'amount', 'REAL');                     // null = price on request
 addColumn('store_products', 'currency', "TEXT NOT NULL DEFAULT ''");
 addColumn('store_products', 'in_stock', 'INTEGER NOT NULL DEFAULT 1');
+addColumn('store_products', 'unit', "TEXT NOT NULL DEFAULT ''");     // "piece", "kg", "litre"… shown as "per piece"
+addColumn('store_products', 'section', "TEXT NOT NULL DEFAULT ''");  // e.g. "Farm produce"; shown as chips on the store page
+addColumn('stores', 'pickup_info', "TEXT NOT NULL DEFAULT ''");      // where buyers collect, e.g. "At the church gate, Kisii"
+addColumn('stores', 'delivery_fee', 'REAL NOT NULL DEFAULT 0');
+addColumn('stores', 'free_delivery_from', 'REAL');                   // order total at which delivery is free
 
 // Older products only have a price written as text, e.g. "KSh 650". Read a number out of it once.
 for (const p of db.prepare("SELECT id, price FROM store_products WHERE amount IS NULL AND price != ''").all()) {
@@ -87,6 +92,8 @@ const imageUpload = (field) => multer({
 }).single(field);
 const removeImage = (name) => { if (name) try { unlinkSync(join(STORE_DIR, name)); } catch {} };
 const clean = (v, max) => String(v ?? '').trim().slice(0, max);
+// A money amount from a form: null when empty, NaN when not a number.
+const money = (v) => { const t = String(v ?? '').replace(/[,\s]/g, ''); if (!t) return null; const n = Number(t); return n >= 0 && n < 1e9 ? n : NaN; };
 
 export function registerStoreRoutes(app, { auth, staffOnly, screen, isStaff }) {
   const q = (sql) => db.prepare(sql);
@@ -123,10 +130,11 @@ export function registerStoreRoutes(app, { auth, staffOnly, screen, isStaff }) {
   const storeFields = (body) => ({
     name: clean(body.name, 80), category: body.category, description: clean(body.description, 3000),
     location: clean(body.location, 120), contact: clean(body.contact, 160), country: String(body.country || '').toUpperCase(),
-    payment_info: clean(body.payment_info, 300), delivery_info: clean(body.delivery_info, 300),
+    payment_info: clean(body.payment_info, 300), delivery_info: clean(body.delivery_info, 300), pickup_info: clean(body.pickup_info, 200),
+    delivery_fee: money(body.delivery_fee) ?? 0, free_delivery_from: money(body.free_delivery_from),
     offers_delivery: body.offers_delivery ? 1 : 0, offers_pickup: body.offers_pickup ? 1 : 0, pay_on_delivery: body.pay_on_delivery ? 1 : 0,
   });
-  const howToSell = (f) => (f.offers_delivery || f.offers_pickup ? null : 'Choose delivery, pickup or both.');
+  const howToSell = (f) => Number.isNaN(f.delivery_fee) || Number.isNaN(f.free_delivery_from) ? 'Please write delivery amounts as numbers, e.g. 200.' : (f.offers_delivery || f.offers_pickup ? null : 'Choose delivery, pickup or both.');
 
   app.get('/api/stores/categories', (req, res) => {
     const counts = Object.fromEntries(q(`SELECT category, COUNT(*) AS n FROM stores WHERE status = 'approved' GROUP BY category`).all().map((r) => [r.category, r.n]));
@@ -159,7 +167,7 @@ export function registerStoreRoutes(app, { auth, staffOnly, screen, isStaff }) {
   app.get('/api/stores/:id', auth, (req, res) => {
     const s = getStore(req.params.id);
     if (!canSee(s, req.user)) return res.status(404).json({ error: 'Store not found.' });
-    const products = q('SELECT * FROM store_products WHERE store_id = ? ORDER BY id DESC').all(s.id).map(shapeProduct);
+    const products = q('SELECT * FROM store_products WHERE store_id = ? ORDER BY in_stock DESC, id DESC').all(s.id).map(shapeProduct);
     const in_group = Boolean(s.group_id && q('SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?').get(s.group_id, req.user.id));
     res.json({ ...shape(s), products, in_group, can_edit: canEdit(s, req.user), currency: currencyFor(s.country) });
   });
@@ -175,9 +183,9 @@ export function registerStoreRoutes(app, { auth, staffOnly, screen, isStaff }) {
     const status = isStaff(req.user) ? 'approved' : 'pending';
     if (howToSell(f)) return fail(400, howToSell(f));
     const store = q(`INSERT INTO stores (owner_id, name, category, description, location, contact, country, logo, status,
-        payment_info, delivery_info, offers_delivery, offers_pickup, pay_on_delivery)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`).get(req.user.id, f.name, f.category, f.description, f.location, f.contact, f.country, req.file?.filename || null, status,
-      f.payment_info, f.delivery_info, f.offers_delivery, f.offers_pickup, f.pay_on_delivery);
+        payment_info, delivery_info, offers_delivery, offers_pickup, pay_on_delivery, pickup_info, delivery_fee, free_delivery_from)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`).get(req.user.id, f.name, f.category, f.description, f.location, f.contact, f.country, req.file?.filename || null, status,
+      f.payment_info, f.delivery_info, f.offers_delivery, f.offers_pickup, f.pay_on_delivery, f.pickup_info, f.delivery_fee, f.free_delivery_from);
     // The store's promotion group: the owner starts in it, shoppers join from the store page.
     const gid = q('INSERT INTO conversations (name, is_group, created_by, store_id) VALUES (?, 1, ?, ?)').run(`🛍️ ${f.name}`, req.user.id, store.id).lastInsertRowid;
     q('INSERT INTO conversation_members (conversation_id, user_id) VALUES (?, ?)').run(gid, req.user.id);
@@ -197,9 +205,9 @@ export function registerStoreRoutes(app, { auth, staffOnly, screen, isStaff }) {
     const logo = req.file?.filename || (req.body.remove_logo === '1' ? null : s.logo);
     if (howToSell(f)) return fail(400, howToSell(f));
     q(`UPDATE stores SET name = ?, category = ?, description = ?, location = ?, contact = ?, country = ?, logo = ?,
-        payment_info = ?, delivery_info = ?, offers_delivery = ?, offers_pickup = ?, pay_on_delivery = ? WHERE id = ?`)
+        payment_info = ?, delivery_info = ?, offers_delivery = ?, offers_pickup = ?, pay_on_delivery = ?, pickup_info = ?, delivery_fee = ?, free_delivery_from = ? WHERE id = ?`)
       .run(f.name, f.category, f.description, f.location, f.contact, f.country, logo,
-        f.payment_info, f.delivery_info, f.offers_delivery, f.offers_pickup, f.pay_on_delivery, s.id);
+        f.payment_info, f.delivery_info, f.offers_delivery, f.offers_pickup, f.pay_on_delivery, f.pickup_info, f.delivery_fee, f.free_delivery_from, s.id);
     if (logo !== s.logo) removeImage(s.logo);
     if (f.name !== s.name && s.group_id) q('UPDATE conversations SET name = ? WHERE id = ?').run(`🛍️ ${f.name}`, s.group_id);
     res.json({ store: shape(getStore(s.id)) });
@@ -227,8 +235,10 @@ export function registerStoreRoutes(app, { auth, staffOnly, screen, isStaff }) {
     if (!name) return fail(400, 'Please name the product.');
     if (f.error) return fail(400, f.error);
     if (!(await checkText(req.user, `${name}\n${description}`, fail))) return;
-    const p = q('INSERT INTO store_products (store_id, name, description, price, amount, currency, image) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *')
-      .get(s.id, name, description, f.price, f.amount, f.currency, req.file?.filename || null);
+    const unit = clean(req.body.unit, 20).replace(/^per\s+/i, '');
+    const section = clean(req.body.section, 40);
+    const p = q('INSERT INTO store_products (store_id, name, description, price, amount, currency, image, unit, section) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *')
+      .get(s.id, name, description, f.price, f.amount, f.currency, req.file?.filename || null, unit, section);
     res.json({ product: shapeProduct(p) });
   }));
 
