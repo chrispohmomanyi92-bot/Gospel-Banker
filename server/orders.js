@@ -106,7 +106,7 @@ export function registerOrderRoutes(app, { auth, isStaff, screen, directMessage 
     const fulfilment = b.fulfilment === 'pickup' ? 'pickup' : 'delivery';
     if (fulfilment === 'delivery' && !s.offers_delivery) return res.status(400).json({ error: 'This store only offers pickup.' });
     if (fulfilment === 'pickup' && !s.offers_pickup) return res.status(400).json({ error: 'This store only delivers.' });
-    // Like a shop counter: the buyer orders first; how to pay is on the order page.
+    // Paid last at checkout: mobile money (with the confirmation code) or on delivery / pickup.
     const payment = b.payment_method === 'on_delivery' && s.pay_on_delivery ? 'on_delivery' : 'mobile';
     const name = clean(b.buyer_name, 80);
     const phone = clean(b.phone, 30);

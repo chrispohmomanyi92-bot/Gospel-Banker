@@ -129,18 +129,50 @@ export function openOrderSheet(s, onChange = () => {}) {
           ${lines.map((l) => `<div class="sum-row"><span>${esc(l.name)} × ${l.qty}</span><span>${esc(fmtMoney(l.amount * l.qty, l.currency))}</span></div>`).join('')}
           <div class="muted small" style="margin:4px 0 8px">Quantity: ${countOf(lines)}${delivery ? '' : ` · Collect at ${esc(pickupPlace(s))}`}</div>
           ${totalsHtml(lines)}</div>
-        <p class="muted small">Nothing to pay now. ${esc(s.name)} confirms your order in chat${s.pay_on_delivery ? `, and you can pay when you ${delivery ? 'receive it' : 'collect it'}` : ' and tells you how to pay'}.</p>
-        <div class="sheet-actions"><button type="button" class="btn ghost" id="backBtn">Back</button><button class="btn gold" id="submitBtn">Submit order · ${esc(fmtMoney(t.total, t.cur))}</button></div>
+        <div class="sheet-actions"><button type="button" class="btn ghost" id="backBtn">Back</button><button class="btn gold">Continue to pay</button></div>
       </form>`;
     const f = $('#detailsForm', dlg);
     const keep = () => Object.assign(form, { buyer_name: f.buyer_name.value, dial: f.dial.value, phone: f.phone.value, note: f.note.value, ...(f.address ? { address: f.address.value } : {}) });
     $('#backBtn', dlg).onclick = () => { keep(); drawOrder(); };
+    f.onsubmit = (e) => { e.preventDefault(); keep(); drawPay(); };
+  };
+
+  // Last step: pay by mobile money now (with the confirmation code), or on delivery / pickup.
+  const drawPay = () => {
+    const lines = cartLines(s);
+    if (!lines.length) { close(); return; }
+    const t = sums(lines);
+    const delivery = form.fulfilment === 'delivery';
+    const total = esc(fmtMoney(t.total, t.cur));
+    const methods = [['mobile', '📱', 'M-Pesa / mobile money', 'Pay now and enter the confirmation code']];
+    if (s.pay_on_delivery) methods.push(['on_delivery', '💵', `Pay on ${delivery ? 'delivery' : 'pickup'}`, `Pay when you ${delivery ? 'receive it' : 'collect it'}`]);
+    if (!methods.some((m) => m[0] === form.payment_method)) form.payment_method = methods[0][0];
+    const mobile = form.payment_method === 'mobile';
+    dlg.innerHTML = `${head('Pay')}
+      <form id="payForm">
+        <div class="pay-total"><span class="muted small">Amount to pay</span><b>${total}</b><span class="muted small">${plural(countOf(lines), 'item')} · ${delivery ? 'Delivery' : 'Pickup'}</span></div>
+        <div class="eyebrow">How do you want to pay?</div>
+        <div class="ways">${methods.map(([v, ico, label, hint]) => `<label class="way ${form.payment_method === v ? 'on' : ''}"><input type="radio" name="payment_method" value="${v}" ${form.payment_method === v ? 'checked' : ''}>
+          <span class="way-ico">${ico}</span><span><b>${label}</b><span class="muted small">${hint}</span></span></label>`).join('')}</div>
+        ${mobile ? `<div class="pay-box">
+            ${s.payment_info ? `<div>1. Send <b>${total}</b> to:</div><div class="pay-to">${esc(s.payment_info)}</div>
+              <div style="margin-top:8px">2. Enter the confirmation code from your payment message:</div>`
+              : `<div>${esc(s.name)} will send you their payment number in chat. You can add the confirmation code on your order page.</div>`}
+            <input type="text" name="payment_ref" maxlength="40" ${s.payment_info ? 'required' : ''} placeholder="e.g. SJK3H7XQ2P" value="${esc(form.payment_ref || '')}" style="text-transform:uppercase;margin-top:8px" aria-label="Confirmation code"></div>`
+          : `<p class="muted small">Have <b>${total}</b> ready when you ${delivery ? 'receive your order' : 'collect your order'}.</p>`}
+        <div class="sheet-actions"><button type="button" class="btn ghost" id="backBtn">Back</button><button class="btn gold" id="submitBtn">${mobile && s.payment_info ? 'Pay' : 'Submit order'} · ${total}</button></div>
+      </form>`;
+    const f = $('#payForm', dlg);
+    const keep = () => { form.payment_ref = f.payment_ref ? f.payment_ref.value.trim() : form.payment_ref; };
+    dlg.querySelectorAll('input[name=payment_method]').forEach((r) => (r.onchange = () => { keep(); form.payment_method = r.value; drawPay(); }));
+    $('#backBtn', dlg).onclick = () => { keep(); drawDetails(); };
     f.onsubmit = async (e) => {
       e.preventDefault();
       keep();
       const btn = $('#submitBtn', dlg); btn.disabled = true;
       const body = { fulfilment: form.fulfilment, buyer_name: form.buyer_name, phone: fullPhone(form.dial, form.phone), address: delivery ? form.address : '',
-        note: form.note, payment_method: s.pay_on_delivery ? 'on_delivery' : 'mobile', items: lines.map((l) => ({ product_id: l.id, qty: l.qty })) };
+        note: form.note, payment_method: form.payment_method, payment_ref: form.payment_method === 'mobile' ? form.payment_ref : '',
+        items: lines.map((l) => ({ product_id: l.id, qty: l.qty })) };
       try {
         const { order } = await api(`/stores/${s.id}/orders`, { method: 'POST', body });
         try { localStorage.setItem(BUYER_KEY, JSON.stringify({ name: form.buyer_name, dial: form.dial, phone: form.phone, address: form.address, fulfilment: form.fulfilment })); } catch {}

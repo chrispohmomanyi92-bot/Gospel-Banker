@@ -437,3 +437,6 @@ dialog.sheet[open] { animation: sheet-up .22s ease-out; }
 .check-box { background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 4px 0 10px; }
 .check-box .eyebrow { margin-top: 0; }
 body:has(.chat-pill) .page { padding-bottom: 96px; }
+.pay-total { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 14px; margin-bottom: 6px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); }
+.pay-total b { font-size: 1.7rem; line-height: 1.2; }
+.pay-box input { background: var(--surface); }
