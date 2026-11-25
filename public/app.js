@@ -3,6 +3,7 @@ import { mountDonateButton } from './donate.js';
 import { renderVideos, pendingVideosHtml, videoShelfHtml } from './videos.js';
 import { renderStores, pendingStoresHtml, storeShelf } from './stores.js';
 import { renderOrders } from './orders.js';
+import { renderJobs, decorateJobCards } from './jobs.js';
 const $ = (sel, el = document) => el.querySelector(sel);
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const initials = (name) => (name || '?').split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase();
@@ -53,6 +54,7 @@ function renderAuth(mode = 'login') {
   <div class="auth"><form class="card" id="authForm">
     <div class="brand"><img src="/icon.svg" alt=""><h2>The Gospel Banker</h2>
       <div class="muted small">Chat, share and grow together in faith</div></div>
+    ${location.hash.startsWith('#/jobs/') ? `<div class="auth-note">💼 ${reg ? 'Create your free account to apply. Your CV details are saved, so the next job takes one tap.' : 'Sign in or create a free account to apply for this job.'}</div>` : ''}
     ${reg ? `<label class="field"><span>Full name</span><input type="text" name="display_name" required></label>` : ''}
     <label class="field"><span>Username</span><input type="text" name="username" autocomplete="username" required></label>
     <label class="field"><span>Password</span><input type="password" name="password" autocomplete="${reg ? 'new-password' : 'current-password'}" required minlength="${reg ? 8 : 1}"></label>
@@ -119,7 +121,7 @@ async function route() {
   if (!state.user) return;
   const [, rawTab = 'feed', ...rest] = location.hash.split('/');
   const tab = rawTab.split('?')[0];
-  document.querySelectorAll('.tabs a').forEach((a) => a.classList.toggle('active', a.dataset.tab === (tab === 'orders' ? 'stores' : tab)));
+  document.querySelectorAll('.tabs a').forEach((a) => a.classList.toggle('active', a.dataset.tab === ({ orders: 'stores', jobs: 'library' }[tab] || tab)));
   const view = $('#view');
   view.scrollTop = 0;
   try {
@@ -127,6 +129,7 @@ async function route() {
     else if (tab === 'videos') await renderVideos(view, rest.map((r) => r.split('?')[0]));
     else if (tab === 'stores') await renderStores(view, rest.map((r) => r.split('?')[0]));
     else if (tab === 'orders') await renderOrders(view, rest.map((r) => r.split('?')[0]));
+    else if (tab === 'jobs') await renderJobs(view, rest.map((r) => r.split('?')[0]));
     else if (tab === 'chats') await renderChats(view, rest[0]);
     else if (tab === 'library') await (rest[0] ? renderSection(view, rest[0]) : renderLibrary(view));
     else if (tab === 'profile') await renderProfile(view, rest[0]);
@@ -566,13 +569,13 @@ function itemHtml(it) {
   const sec = state.sections.find((s) => s.key === it.section);
   const yt = youtubeId(it.url);
   const m = it.meta || {};
-  return `<article class="card">
+  return `<article class="card"${it.section === 'jobs' && it.status === 'approved' ? ` data-job="${it.id}"` : ''}>
     <div class="row"><span class="tag">${esc(sec?.label || it.section)}</span><span class="spacer"></span><span class="muted small">${esc(it.source)}</span></div>
     <div class="item-title" style="margin-top:6px">${esc(it.title)}</div>
     ${it.summary ? `<div class="muted">${esc(it.summary)}</div>` : ''}
     ${yt ? `<div class="embed"><iframe src="https://www.youtube-nocookie.com/embed/${yt}" loading="lazy" allowfullscreen title="${esc(it.title)}"></iframe></div>` : ''}
     ${m.location || m.type || m.deadline || m.price ? `<div class="kv">${m.location ? `<span>📍 ${esc(m.location)}</span>` : ''}${m.type ? `<span>🕒 ${esc(m.type)}</span>` : ''}${m.deadline ? `<span>📅 ${it.section === 'events' ? 'Date' : 'Apply by'} ${esc(m.deadline)}</span>` : ''}${m.price ? `<span>💲 ${esc(m.price)}</span>` : ''}</div>` : ''}
-    ${it.url && !yt ? `<div style="margin-top:10px"><a class="btn small ghost" style="text-decoration:none" href="${esc(it.url)}" target="_blank" rel="noopener">${it.section === 'jobs' ? 'Apply / details' : 'Open'} ↗</a></div>` : ''}
+    ${it.url && !yt ? `<div style="margin-top:10px"><a class="btn small ghost" style="text-decoration:none" href="${esc(it.url)}" target="_blank" rel="noopener">${it.section === 'jobs' ? 'Full details' : 'Open'} ↗</a></div>` : ''}
   </article>`;
 }
 
@@ -594,6 +597,7 @@ async function renderSection(view, key) {
     <p class="muted">${esc(sec.blurb)}</p>${extra}
     ${items.length ? items.map(itemHtml).join('') : '<div class="empty">Nothing here yet.</div>'}</div>`;
   $('#submitBtn').onclick = () => submitDialog(sec, staff);
+  if (key === 'jobs') await decorateJobCards(view);
   const egw = $('#egwSearch');
   if (egw) egw.onsubmit = (e) => {
     e.preventDefault();
@@ -649,7 +653,7 @@ async function renderProfile(view, userId) {
     <label class="field"><span>Headline (profession or ministry)</span><input type="text" name="headline" value="${esc(u.headline)}"></label>
     <label class="field"><span>Home church</span><input type="text" name="church" value="${esc(u.church)}"></label>
     <label class="field"><span>About you</span><textarea name="bio">${esc(u.bio)}</textarea></label>
-    <div class="profile-actions"><button class="btn">Save</button><a class="btn ghost" href="#/videos/channel/${u.id}">🎬 My channel</a><a class="btn ghost" href="#/stores/mine">🛍️ My stores</a></div>
+    <div class="profile-actions"><button class="btn">Save</button><a class="btn ghost" href="#/videos/channel/${u.id}">🎬 My channel</a><a class="btn ghost" href="#/stores/mine">🛍️ My stores</a><a class="btn ghost" href="#/jobs/cv">📄 My CV & job applications</a></div>
     <button type="button" class="btn ghost signout" id="logoutBtn">↪ Sign out</button></form>
     <div class="card small muted">🛡️ To keep this a safe place, messages, posts and comments are checked for abusive language${state.aiModeration ? ' by an AI filter' : ''}. Mild words are hidden; threats and harassment are blocked, and repeat offenders are muted.</div></div>`;
   $('#logoutBtn').onclick = logout;

@@ -11,6 +11,7 @@ import { registerVideoRoutes, addColumn } from './videos.js';
 import { registerStoreRoutes } from './stores.js';
 import { registerOrderRoutes } from './orders.js';
 import { registerDonateRoutes } from './donate.js';
+import { registerJobRoutes } from './jobs.js';
 
 const JWT_SECRET = process.env.JWT_SECRET || randomBytes(32).toString('hex');
 if (!process.env.JWT_SECRET) console.warn('JWT_SECRET not set: using a random secret, logins reset on restart.');
@@ -336,6 +337,7 @@ registerVideoRoutes(app, { auth, staffOnly, screen, isStaff, publicUser, userByI
 registerStoreRoutes(app, { auth, staffOnly, screen, isStaff });
 registerOrderRoutes(app, { auth, isStaff, screen, directMessage });
 registerDonateRoutes(app, { auth });
+registerJobRoutes(app, { auth, isStaff, screen, directMessage });
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 app.get(/^\/(?!api|socket\.io|media).*/, (req, res) => res.sendFile(fileURLToPath(new URL('../public/index.html', import.meta.url))));
