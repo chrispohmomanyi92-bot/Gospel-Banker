@@ -67,7 +67,7 @@ main { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .iconbtn { background: none; border: 0; cursor: pointer; font-size: 1.2rem; padding: 6px; border-radius: 8px; color: var(--ink); }
 .field { display: block; margin-bottom: 12px; }
 .field span { display: block; font-size: .85rem; color: var(--muted); margin-bottom: 4px; }
-input[type=text], input[type=password], input[type=url], input[type=search], input[type=date], input[type=tel], input[type=number], textarea, select {
+input[type=text], input[type=password], input[type=url], input[type=search], input[type=date], input[type=tel], input[type=email], input[type=number], textarea, select {
   width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface-2); outline: none;
 }
 input:focus, textarea:focus, select:focus { border-color: var(--gold); box-shadow: 0 0 0 3px var(--gold-soft); }
@@ -451,3 +451,47 @@ body:has(.chat-pill) .page { padding-bottom: 96px; }
 /* room at the bottom so the floating Give button never covers the last item */
 main#view { padding-bottom: 72px; }
 @media (min-width: 900px) { main#view { padding-bottom: 24px; } }
+
+/* jobs: apply, my CV, applications */
+.job-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.job-actions .btn { text-decoration: none; }
+.job-actions .btn.gold { flex: 1 1 140px; text-align: center; font-size: .95rem; padding: 9px 14px; }
+.pill-new { background: var(--danger); color: #fff; border-radius: 999px; padding: 0 7px; font-size: .75rem; margin-left: 4px; }
+.cv-banner { text-decoration: none; color: inherit; border-left: 4px solid var(--gold); }
+.auth-note { background: var(--gold-soft); border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; font-size: .9rem; }
+.cv-group { border: 0; padding: 0; margin: 0 0 14px; min-width: 0; }
+.cv-group legend { font-weight: 700; font-size: 1.02rem; padding: 0; margin-bottom: 10px; color: var(--ink); }
+.cv-form .cv-group + .cv-group { border-top: 1px solid var(--line); padding-top: 14px; }
+.cv-entry { background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 12px 12px 6px; margin-bottom: 10px; }
+.cv-entry .field input, .cv-entry .field textarea { background: var(--surface); }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 520px) { .two { grid-template-columns: 1fr; gap: 0; } }
+.link-btn { border: 0; background: none; padding: 0 0 6px; cursor: pointer; font-weight: 600; font-size: .85rem; }
+.danger-text { color: var(--danger) !important; }
+.btn.ghost.danger-text { border-color: var(--danger); }
+.cv-downloads { display: flex; flex-wrap: wrap; gap: 8px; }
+.cv-downloads .btn { text-decoration: none; }
+.steps { display: flex; gap: 6px; margin: 4px 0 12px; }
+.steps span { flex: 1; text-align: center; font-size: .78rem; font-weight: 600; padding: 6px 4px; border-radius: 999px; background: var(--surface-2); color: var(--muted); border: 1px solid var(--line); }
+.steps span.on { background: var(--gold-soft); color: var(--ink); border-color: var(--gold); }
+.job-head { border-top: 4px solid var(--gold); }
+.applied-box { text-align: center; }
+.applied-box .cv-downloads { justify-content: center; }
+.status { font-size: .75rem; font-weight: 700; padding: 3px 10px; border-radius: 999px; white-space: nowrap; background: var(--surface-2); border: 1px solid var(--line); }
+.status.s-submitted { background: #e8f0fe; color: #1a4fa0; border-color: #c6d8fb; }
+.status.s-shortlisted { background: #e3f4e4; color: #1d6b22; border-color: #b9e0bc; }
+.status.s-declined, .status.s-withdrawn { color: var(--muted); }
+.app-row { text-decoration: none; color: inherit; }
+.applicant .avatar { flex: none; }
+.applicant .applicant-body { display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.applicant.open .applicant-body { display: block; }
+.applicant .applicant-body p { margin: 0 0 8px; }
+.pre { white-space: pre-wrap; }
+.cv-paper { background: #fff; color: #222; padding: 28px 24px; border-radius: 6px; box-shadow: 0 2px 14px rgba(0,0,0,.15); }
+@media (max-width: 520px) { .cv-paper { padding: 18px 14px; } .cv-paper h1 { font-size: 20pt !important; } }
+@media print {
+  .tabs, .topbar, .give-fab, .no-print, #toast { display: none !important; }
+  .shell, main { height: auto !important; overflow: visible !important; display: block !important; }
+  body, .page { background: #fff !important; padding: 0 !important; }
+  .cv-paper { box-shadow: none; padding: 0; }
+}
